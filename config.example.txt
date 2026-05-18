@@ -1,0 +1,30 @@
+# Copy this file to config.txt and fill in WEB_AUTH_TOKEN before starting.
+
+# Listen address:
+#   :9090          Listen on all interfaces.
+#   127.0.0.1:9090 Listen only on localhost.
+LISTEN_ADDR=:9090
+
+# Required web UI login token.
+WEB_AUTH_TOKEN=change-me
+
+# Optional proxy API token. Leave empty, then generate or fill it in the web UI.
+API_AUTH_TOKEN=
+
+# Monthly cooldown threshold in USD.
+MONTHLY_COOLDOWN_USD=5
+
+# Monthly quota per key in USD, used for UI totals.
+MONTHLY_QUOTA_PER_KEY=5
+
+# Optional default reasoning effort: minimal / low / medium / high / xhigh.
+DEFAULT_REASONING_EFFORT=
+
+# Optional upstream gateway URL.
+# GATEWAY_BASE_URL=https://ai-gateway.vercel.sh/v1
+
+# Optional provider order fallback, for example: bedrock or bedrock,anthropic.
+PROVIDER_ORDER=bedrock
+
+# Optional debug dump directory. Leave empty to disable.
+DEBUG_DUMP_DIR=

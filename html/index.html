@@ -1,0 +1,1124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AI Gateway 管理</title>
+<style>
+:root{
+  --bg:#f4f6f3;
+  --card:#fff;
+  --text:#1e2a22;
+  --muted:#6b7872;
+  --border:#dde2dd;
+  --border-soft:#eef1ee;
+  --green:#2e7d32;
+  --green-soft:#e8f5e9;
+  --amber:#b8860b;
+  --amber-soft:#fff8e1;
+  --red:#9b2b2b;
+  --red-soft:#fdeded;
+  --grey:#eef0ef;
+  --shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 12px rgba(0,0,0,0.04);
+  --radius:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:24px 20px 60px}
+
+/* Top bar */
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.topbar h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-0.3px}
+.topbar h1 .sub{font-size:12px;color:var(--muted);font-weight:400;margin-left:8px}
+
+/* Card */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);margin-bottom:16px;animation:fadeUp .25s ease-out}
+.card.flush{padding:0;overflow:hidden}
+
+/* Metrics grid */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px}
+.metric{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);transition:transform .2s,box-shadow .2s}
+.metric:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,0.06)}
+.metric .label{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;margin-bottom:6px}
+.metric .value{font-size:20px;font-weight:600;letter-spacing:-0.3px}
+.metric .sub{color:var(--muted);font-size:11px;margin-top:4px}
+
+/* Buttons */
+button{height:34px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);padding:0 12px;cursor:pointer;font-size:13px;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:4px;justify-content:center}
+button:hover{background:#f5f8f5;border-color:#b8c2bb}
+button:active{transform:scale(.97)}
+button.primary{background:var(--text);color:#fff;border-color:var(--text)}
+button.primary:hover{background:#2c3a30}
+button.amber{background:var(--amber);color:#fff;border-color:var(--amber)}
+button.amber:hover{background:#a07700;border-color:#a07700}
+button.green{background:var(--green);color:#fff;border-color:var(--green)}
+button.green:hover{background:#266c2a;border-color:#266c2a}
+button.red{background:#fff;color:var(--red);border-color:#e8c4c4}
+button.red:hover{background:var(--red-soft);border-color:#d99090}
+button:disabled{opacity:.55;cursor:not-allowed;transform:none}
+button.icon-btn{height:28px;padding:0 10px;font-size:12px;border-radius:6px}
+
+/* Inputs */
+input,select,textarea{height:34px;padding:0 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#fff;color:var(--text);font-family:inherit;transition:border-color .15s,box-shadow .15s}
+textarea{height:auto;padding:10px 12px;min-height:120px;resize:vertical;line-height:1.5}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#6b7872;box-shadow:0 0 0 3px rgba(107,120,114,.12)}
+
+/* Toolbar */
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.filterbar{display:grid;grid-template-columns:minmax(160px,1fr) 140px 160px auto;gap:8px;align-items:center;margin-bottom:12px}
+.log-filterbar{display:grid;grid-template-columns:minmax(160px,1fr) 120px auto;gap:8px;align-items:center;margin-bottom:10px}
+.settings-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+.settings-box{border:1px solid var(--border-soft);border-radius:10px;padding:14px;background:#fafbfa}
+.settings-box h3{margin:0 0 12px;font-size:14px}
+.settings-box .form-row:last-child{margin-bottom:0}
+.settings-box textarea{min-height:180px;font-family:Consolas,"Courier New",monospace;font-size:12px}
+
+/* Table */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:11px 12px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--border);background:#fafbfa;position:sticky;top:0}
+td{padding:13px 12px;border-bottom:1px solid var(--border-soft);vertical-align:middle;font-size:13px}
+tr{transition:background .12s}
+tr:hover{background:#fafbfa}
+tr:last-child td{border-bottom:none}
+
+/* Pills */
+.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;line-height:1.4}
+.pill.green{background:var(--green-soft);color:#1b5e20}
+.pill.amber{background:var(--amber-soft);color:#7a5b00}
+.pill.red{background:var(--red-soft);color:#7a1f1f}
+.pill.grey{background:var(--grey);color:var(--muted)}
+.pill.lock{background:#fff3d9;color:#7a5b00;margin-left:6px}
+
+/* Section heading */
+.section{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.section h2{margin:0;font-size:15px;font-weight:600}
+.section .count{background:var(--grey);color:var(--muted);padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600}
+.section .spacer{flex:1}
+
+/* Tabs */
+.tabs{display:flex;gap:10px;border-bottom:1px solid var(--border);margin:-4px -4px 16px;padding:4px 4px 0}
+.tab{height:44px;min-width:96px;padding:0 22px;border:none;background:transparent;color:var(--muted);border-radius:8px 8px 0 0;border-bottom:3px solid transparent;margin-bottom:-1px;font-weight:500;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:color .15s,border-color .15s,background .15s}
+.tab:hover{color:var(--text);background:#fafbfa}
+.tab.active{color:var(--text);font-weight:600}
+.tab[data-tab=active].active{border-bottom-color:var(--green)}
+.tab[data-tab=cooldown].active{border-bottom-color:var(--amber)}
+.tab[data-tab=scrap].active{border-bottom-color:#888}
+.tab[data-tab=logs].active{border-bottom-color:var(--text)}
+.tab[data-tab=settings].active,.tab[data-tab=config].active{border-bottom-color:#6b7872}
+.tab-count{background:var(--grey);color:var(--muted);padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;transition:background .15s,color .15s}
+.tab[data-tab=active].active .tab-count{background:var(--green-soft);color:var(--green)}
+.tab[data-tab=cooldown].active .tab-count{background:var(--amber-soft);color:var(--amber)}
+.tab[data-tab=scrap].active .tab-count{background:var(--red-soft);color:var(--red)}
+.tab[data-tab=logs].active .tab-count{background:var(--text);color:#fff}
+.tab-panel{display:none}
+.tab-panel.active{display:block;animation:fadeUp .2s ease-out}
+.tab-hint{color:var(--muted);font-size:11px;margin-bottom:10px}
+
+/* Column filters */
+.filter-trigger{height:24px;width:24px;padding:0;border:none;background:transparent;color:var(--muted);font-size:13px;border-radius:5px;margin-left:4px}
+.filter-trigger.active{background:var(--green-soft);color:var(--green)}
+.filter-pop{display:none;position:absolute;background:#fff;border:1px solid var(--border);box-shadow:0 8px 24px rgba(0,0,0,.10);border-radius:10px;padding:10px;z-index:80;min-width:210px}
+.filter-pop.show{display:block}
+.filter-pop input,.filter-pop select{width:100%;margin-bottom:8px}
+.filter-pop .mini-actions{display:flex;gap:6px;justify-content:flex-end}
+.filter-pop .mini-actions button{height:28px;font-size:12px;padding:0 8px}
+
+/* Pagination */
+.pager{display:flex;align-items:center;gap:8px;padding:12px 4px 0;justify-content:flex-end;font-size:12px;color:var(--muted);border-top:1px solid var(--border-soft);margin-top:8px}
+.pager .total{margin-right:auto;color:var(--muted)}
+.pager button{height:30px;min-width:34px;padding:0 8px;font-size:12px;border-radius:6px}
+.pager button:disabled{opacity:.35}
+.pager select{height:30px;padding:0 26px 0 10px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer}
+.pager .pages{font-weight:600;color:var(--text);padding:0 6px}
+
+/* Actions */
+.actions{display:inline-flex;gap:5px;align-items:center}
+.more{position:relative}
+.more-menu{display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.10);padding:6px;z-index:50;min-width:148px;animation:popMenu .14s ease-out}
+.more.open .more-menu{display:flex;flex-direction:column;gap:1px}
+.more-menu button{height:32px;text-align:left;justify-content:flex-start;border:none;background:transparent;border-radius:6px;padding:0 10px;width:100%}
+.more-menu button:hover{background:var(--border-soft)}
+.more-menu button.danger{color:var(--red)}
+.more-menu button.danger:hover{background:var(--red-soft)}
+
+/* Batch bar */
+.batch-bar{margin-bottom:12px;padding:10px 14px;background:#f0f4f1;border-radius:10px;display:none;align-items:center;gap:8px;flex-wrap:wrap;animation:slideDown .2s}
+.batch-bar.show{display:flex}
+.batch-bar b{color:var(--text)}
+
+/* Key cell */
+.key-cell{font-family:Consolas,"Courier New",monospace;font-size:11px;word-break:break-all;max-width:240px;color:var(--muted)}
+
+/* Modals */
+.overlay{display:none;position:fixed;inset:0;background:rgba(20,25,22,.45);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(2px);animation:fadeIn .15s}
+.overlay.show{display:flex}
+.modal{background:#fff;border-radius:16px;padding:22px;min-width:340px;max-width:90vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,.18);animation:popIn .22s cubic-bezier(.2,.9,.4,1.1)}
+.modal h3{margin:0 0 14px;font-size:16px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.modal h3 .close{cursor:pointer;color:var(--muted);font-weight:400;padding:2px 8px;border-radius:6px;user-select:none;transition:background .12s}
+.modal h3 .close:hover{background:var(--border-soft)}
+.modal-body{overflow:auto;flex:1;min-height:0}
+.modal-actions{margin-top:18px;display:flex;justify-content:flex-end;gap:8px}
+.form-row{margin-bottom:12px}
+.form-row label{display:block;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px}
+.form-row input,.form-row textarea{width:100%}
+
+/* Model picker */
+.model-list{border:1px solid var(--border);border-radius:10px;overflow:auto;flex:1;min-height:240px;max-height:50vh}
+.model-item{padding:9px 14px;border-bottom:1px solid var(--border-soft);cursor:pointer;font-family:Consolas,monospace;font-size:12px;transition:background .1s}
+.model-item:last-child{border-bottom:none}
+.model-item:hover{background:#eef4ee}
+.model-item.claude{background:#faf8ef}
+.model-item.claude:hover{background:#f0ecd8}
+
+/* Toast */
+#toasts{position:fixed;top:20px;right:20px;z-index:2000;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:380px}
+.toast{background:#1e2a22;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.18);animation:slideInRight .22s cubic-bezier(.2,.9,.4,1.1);pointer-events:auto;line-height:1.4}
+.toast.success{background:var(--green)}
+.toast.error{background:var(--red)}
+.toast.warn{background:var(--amber)}
+.toast.fadeout{animation:slideOutRight .25s forwards}
+
+/* Animations */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes popIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
+@keyframes popMenu{from{opacity:0;transform:translateY(-4px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes slideOutRight{to{opacity:0;transform:translateX(20px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Spinner */
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle}
+button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.15);border-top-color:var(--text)}
+
+/* Empty state */
+.empty{padding:36px 20px;text-align:center;color:var(--muted);font-size:13px}
+
+/* Logs container */
+.logs-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:10px}
+.logs-wrap th{background:#fafbfa}
+.logs-wrap td{font-size:12px}
+
+/* Sticky icon */
+.lock-ico{margin-right:5px;color:var(--amber)}
+
+/* Small text */
+.muted{color:var(--muted);font-size:11px}
+.right{text-align:right}
+@media (max-width:760px){
+  .filterbar,.log-filterbar,.settings-grid{grid-template-columns:1fr}
+  .tabs{gap:12px;overflow:auto}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>AI Gateway 管理 <span class="sub">/ 多 key 轮询代理</span></h1>
+    <div class="toolbar">
+      <button onclick="logout()">退出登录</button>
+    </div>
+  </div>
+
+  <div id="metrics" class="metrics"></div>
+
+  <div class="card">
+    <div class="toolbar">
+      <input id="apiKey" placeholder="vck_xxx  或  [名称] [等级] vck_xxx" style="flex:1;min-width:260px"/>
+      <button class="primary" onclick="createKey()">新增</button>
+      <button onclick="openBulkImport()">批量导入</button>
+      <button onclick="exportKeys()">导出 Key</button>
+      <button id="btnRefreshAll" onclick="refreshBalanceAll()">刷新全部余额</button>
+      <button id="stickyBtn" onclick="toggleSticky()">切换粘性</button>
+      <button onclick="loadState()">刷新视图</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" data-tab="active" onclick="switchTab('active')">活跃 <span class="tab-count" id="tabCountActive">0</span></button>
+      <button class="tab" data-tab="cooldown" onclick="switchTab('cooldown')">冷却 <span class="tab-count" id="tabCountCooldown">0</span></button>
+      <button class="tab" data-tab="scrap" onclick="switchTab('scrap')">报废 <span class="tab-count" id="tabCountScrap">0</span></button>
+      <button class="tab" data-tab="logs" onclick="switchTab('logs')">日志 <span class="tab-count" id="tabCountLogs">0</span></button>
+      <button class="tab" data-tab="settings" onclick="switchTab('settings')">设置</button>
+      <button class="tab" data-tab="config" onclick="switchTab('config')">配置</button>
+    </div>
+
+    <div id="panel-active" class="tab-panel active">
+      <div id="activeBatch" class="batch-bar">
+        <b>已选 <span id="activeBatchCount">0</span> 项</b>
+        <button onclick="batchScrap()">批量报废</button>
+        <button class="red" onclick="batchDelete('active')">批量删除</button>
+        <button onclick="clearSelect('active')">取消选择</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th style="width:28px"><input type="checkbox" id="activeAll" onclick="toggleSelectAll('active',this.checked)"/></th>
+          <th>名称 <button class="filter-trigger" data-filter="active:name" onclick="openFilter(event,'active','name')">筛</button></th>
+          <th>等级 <button class="filter-trigger" data-filter="active:tier" onclick="openFilter(event,'active','tier')">筛</button></th>
+          <th>密钥</th>
+          <th>周期已用</th>
+          <th>余额</th>
+          <th>调用</th>
+          <th>状态</th>
+          <th>下次重置 <button class="filter-trigger" data-filter="active:reset" onclick="openFilter(event,'active','reset')">筛</button></th>
+          <th class="right">操作</th>
+        </tr></thead>
+        <tbody id="activeBody"></tbody>
+      </table>
+      <div id="activePager"></div>
+    </div>
+
+    <div id="panel-cooldown" class="tab-panel">
+      <div class="tab-hint">达到月度阈值或 402，不参与轮询。重置月度后回活跃池。</div>
+      <table>
+        <thead><tr>
+          <th>名称 <button class="filter-trigger" data-filter="cooldown:name" onclick="openFilter(event,'cooldown','name')">筛</button></th>
+          <th>等级 <button class="filter-trigger" data-filter="cooldown:tier" onclick="openFilter(event,'cooldown','tier')">筛</button></th>
+          <th>密钥</th>
+          <th>周期已用</th>
+          <th>余额</th>
+          <th>冷却原因</th>
+          <th>下次重置 <button class="filter-trigger" data-filter="cooldown:reset" onclick="openFilter(event,'cooldown','reset')">筛</button></th>
+          <th class="right">操作</th>
+        </tr></thead>
+        <tbody id="cooldownBody"></tbody>
+      </table>
+      <div id="cooldownPager"></div>
+    </div>
+
+    <div id="panel-scrap" class="tab-panel">
+      <div class="tab-hint">代理连续 3 次 401 或余额刷新认证失败会自动报废，不参与轮询。可用 haiku 测活恢复。</div>
+      <div id="scrapBatch" class="batch-bar">
+        <b>已选 <span id="scrapBatchCount">0</span> 项</b>
+        <button onclick="batchTest()">批量测试 (haiku)</button>
+        <button class="green" onclick="batchRestore()">批量恢复</button>
+        <button class="red" onclick="batchDelete('scrap')">批量删除</button>
+        <button onclick="clearSelect('scrap')">取消选择</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th style="width:28px"><input type="checkbox" id="scrapAll" onclick="toggleSelectAll('scrap',this.checked)"/></th>
+          <th>名称 <button class="filter-trigger" data-filter="scrap:name" onclick="openFilter(event,'scrap','name')">筛</button></th>
+          <th>等级 <button class="filter-trigger" data-filter="scrap:tier" onclick="openFilter(event,'scrap','tier')">筛</button></th>
+          <th>密钥</th>
+          <th>最后余额</th>
+          <th>累计</th>
+          <th>报废原因</th>
+          <th>报废时间 <button class="filter-trigger" data-filter="scrap:reset" onclick="openFilter(event,'scrap','reset')">筛</button></th>
+          <th class="right">操作</th>
+        </tr></thead>
+        <tbody id="scrapBody"></tbody>
+      </table>
+      <div id="scrapPager"></div>
+    </div>
+
+    <div id="panel-logs" class="tab-panel">
+      <div class="log-filterbar">
+        <input id="logFilterText" placeholder="筛选模型 / Key / 错误" oninput="renderLogs()"/>
+        <select id="logFilterStatus" onchange="renderLogs()">
+          <option value="">全部状态</option>
+          <option value="success">成功</option>
+          <option value="failed">失败</option>
+          <option value="retried">发生重试</option>
+        </select>
+        <button class="icon-btn" onclick="loadLogs()">刷新日志</button>
+      </div>
+      <div class="logs-wrap">
+        <table>
+          <thead><tr><th>时间</th><th>模型</th><th>Key</th><th>状态</th><th>耗时</th><th>切换</th><th>错误</th></tr></thead>
+          <tbody id="logbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="panel-settings" class="tab-panel">
+      <div class="settings-grid">
+        <div class="settings-box">
+          <h3>重试参数</h3>
+          <div class="tab-hint">状态码同时出现在重试和报废策略中时，会先切换下一个 key，并给当前 key 累计一次失败；达到配置页的连续失败阈值后自动报废。</div>
+          <div class="form-row"><label>重试状态码</label><input id="retryCodes" placeholder="400,401,402,403,429,5xx"/></div>
+          <div class="form-row"><label>最大尝试次数</label><input id="retryMax" type="number" min="1" max="20" placeholder="20"/></div>
+          <button class="primary" onclick="saveSettings()">保存设置</button>
+        </div>
+        <div class="settings-box">
+          <h3>Hobby 不可用模型</h3>
+          <div class="form-row"><label>每行一个模型或前缀，可用 * 结尾</label><textarea id="hobbyBlockedModels" placeholder="anthropic/claude-opus-4.5&#10;claude-opus-4.6&#10;anthropic/claude-opus-*"></textarea></div>
+          <button onclick="saveSettings()">保存模型规则</button>
+        </div>
+      </div>
+      </div>
+
+    <div id="panel-config" class="tab-panel">
+      <div class="settings-grid">
+        <div class="settings-box">
+          <h3>访问密钥</h3>
+          <div class="form-row"><label>Web 登录密码</label><input id="cfgWebToken" type="text"/></div>
+          <div class="form-row"><label>API 调用密钥，每行一个</label><textarea id="cfgApiTokens" placeholder="可留空，留空时代理接口不可调用"></textarea></div>
+          <button onclick="addRandomApiToken()">随机生成 API Key</button>
+        </div>
+        <div class="settings-box">
+          <h3>默认渠道</h3>
+          <div class="form-row"><label>Provider Order</label><input id="cfgProviderOrder" placeholder="bedrock 或 bedrock,anthropic"/></div>
+          <div class="form-row"><label>默认 Reasoning</label><input id="cfgDefaultReasoning" placeholder="minimal / low / medium / high / xhigh"/></div>
+          <div class="form-row"><label>Gateway Base URL</label><input id="cfgGatewayBase" placeholder="https://ai-gateway.vercel.sh/v1"/></div>
+        </div>
+        <div class="settings-box">
+          <h3>额度与状态策略</h3>
+          <div class="form-row"><label>月度冷却阈值 USD</label><input id="cfgCooldownUsd" type="number" step="0.01"/></div>
+          <div class="form-row"><label>单 Key 月额度 USD</label><input id="cfgMonthlyQuota" type="number" step="0.01"/></div>
+          <div class="form-row"><label>代理命中后进入冷却的状态码</label><input id="cfgCooldownCodes" placeholder="402"/></div>
+          <div class="form-row"><label>代理命中后计入报废的状态码</label><input id="cfgProxyScrapCodes" placeholder="401"/></div>
+          <div class="form-row"><label>连续失败几次报废</label><input id="cfgProxyScrapThreshold" type="number" min="1" max="50"/></div>
+          <div class="form-row"><label>刷新余额命中后报废的状态码</label><input id="cfgRefreshScrapCodes" placeholder="401,403"/></div>
+          <div class="form-row"><label>刷新余额命中后冷却的状态码</label><input id="cfgRefreshCooldownCodes" placeholder="可留空"/></div>
+        </div>
+        <div class="settings-box">
+          <h3>运行参数</h3>
+          <div class="form-row"><label>监听地址，保存后需重启生效</label><input id="cfgListenAddr" placeholder="127.0.0.1:9090"/></div>
+          <div class="form-row"><label>Debug Dump 目录</label><input id="cfgDebugDumpDir" placeholder="留空关闭"/></div>
+          <div class="form-row"><label><input id="cfgPassthroughOnly" type="checkbox" style="width:auto;height:auto;margin-right:6px"/>Passthrough Only</label></div>
+          <button class="primary" onclick="saveConfig()">保存配置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Model picker -->
+<div id="modalModels" class="overlay" onclick="if(event.target===this)closeOverlay('modalModels')">
+  <div class="modal" style="width:540px">
+    <h3><span>选择模型测试</span><span class="close" onclick="closeOverlay('modalModels')">✕</span></h3>
+    <input type="search" id="modelSearch" placeholder="搜索模型名..." style="margin-bottom:10px"/>
+    <div id="modelHint" class="muted" style="margin-bottom:8px"></div>
+    <div class="model-list" id="modelList"></div>
+  </div>
+</div>
+
+<!-- Edit key -->
+<div id="modalEdit" class="overlay" onclick="if(event.target===this)closeOverlay('modalEdit')">
+  <div class="modal" style="width:440px">
+    <h3><span>编辑 Key</span><span class="close" onclick="closeOverlay('modalEdit')">✕</span></h3>
+    <div class="form-row"><label>名称</label><input id="editName" type="text" placeholder="可留空"/></div>
+    <div class="form-row"><label>等级</label><input id="editTier" type="text" placeholder="可留空，例 team / hobby / pro"/></div>
+    <div class="form-row"><label>API Key</label><input id="editKey" type="text" placeholder="留空 = 不修改"/></div>
+    <div class="modal-actions">
+      <button onclick="closeOverlay('modalEdit')">取消</button>
+      <button class="primary" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk import -->
+<div id="modalBulk" class="overlay" onclick="if(event.target===this)closeOverlay('modalBulk')">
+  <div class="modal" style="width:540px">
+    <h3><span>批量导入</span><span class="close" onclick="closeOverlay('modalBulk')">✕</span></h3>
+    <div class="form-row"><label>每行格式：[名称] [等级] vck_xxx</label><textarea id="bulkText" placeholder="支持空格/Tab 分隔，名称和等级可省略。例：&#10;team-main  team  vck_xxx...&#10;hobby-backup hobby vck_yyy...&#10;vck_zzz...   ← 也支持纯 key"></textarea></div>
+    <div class="modal-actions">
+      <button onclick="closeOverlay('modalBulk')">取消</button>
+      <button class="primary" onclick="doBulkImport()">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm -->
+<div id="modalConfirm" class="overlay" onclick="if(event.target===this)closeOverlay('modalConfirm')">
+  <div class="modal" style="width:380px">
+    <h3><span id="confirmTitle">确认</span><span class="close" onclick="dismissConfirm()">✕</span></h3>
+    <div id="confirmBody" style="font-size:13px;line-height:1.6"></div>
+    <div class="modal-actions">
+      <button onclick="dismissConfirm()">取消</button>
+      <button id="confirmOk" class="primary" onclick="acceptConfirm()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- Info -->
+<div id="modalInfo" class="overlay" onclick="if(event.target===this)closeOverlay('modalInfo')">
+  <div class="modal" style="width:560px;max-height:80vh">
+    <h3><span id="infoTitle">提示</span><span class="close" onclick="closeOverlay('modalInfo')">✕</span></h3>
+    <div id="infoBody" class="modal-body" style="font-size:12px;line-height:1.6;white-space:pre-wrap;font-family:Consolas,monospace;background:#fafbfa;border:1px solid var(--border-soft);border-radius:8px;padding:12px"></div>
+    <div class="modal-actions"><button class="primary" onclick="closeOverlay('modalInfo')">确定</button></div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+// ---------- utilities ----------
+const fmt=n=>Number(n||0).toFixed(2);
+const dt=s=>{if(!s)return '-';if(typeof s==='string'&&s.startsWith('0001-01-01'))return '-';return new Date(s).toLocaleString();};
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function truncate(s,n){return (s=String(s||'')).length>n?s.slice(0,n)+'...':s;}
+
+// ---------- toast ----------
+function toast(msg,type='info',ms=2800){
+  const t=document.createElement('div');
+  t.className='toast '+type;
+  t.textContent=msg;
+  document.getElementById('toasts').appendChild(t);
+  setTimeout(()=>{t.classList.add('fadeout');setTimeout(()=>t.remove(),250);},ms);
+}
+
+// ---------- modal helpers ----------
+function openOverlay(id){document.getElementById(id).classList.add('show');}
+function closeOverlay(id){document.getElementById(id).classList.remove('show');}
+let _confirmResolve=null;
+function dismissConfirm(){closeOverlay('modalConfirm');if(_confirmResolve){_confirmResolve(false);_confirmResolve=null;}}
+function acceptConfirm(){closeOverlay('modalConfirm');if(_confirmResolve){_confirmResolve(true);_confirmResolve=null;}}
+function confirmModal(msg,title='确认',okClass='primary'){
+  return new Promise(resolve=>{
+    document.getElementById('confirmTitle').textContent=title;
+    document.getElementById('confirmBody').textContent=msg;
+    document.getElementById('confirmOk').className=okClass;
+    _confirmResolve=resolve;
+    openOverlay('modalConfirm');
+  });
+}
+function infoModal(title,body){
+  document.getElementById('infoTitle').textContent=title;
+  document.getElementById('infoBody').textContent=body;
+  openOverlay('modalInfo');
+}
+
+// ---------- downloads ----------
+async function exportKeys(){
+  try{
+    const r=await fetch('/api/export/keys');
+    if(r.status===401){location.reload();return;}
+    if(!r.ok)throw new Error(await r.text());
+    const blob=await r.blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='keys.tsv';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
+    toast('已导出 Key','success');
+  }catch(e){toast(e.message,'error')}
+}
+
+// ---------- API ----------
+async function api(path,opts={}){
+  const headers=Object.assign({'Content-Type':'application/json'},opts.headers||{});
+  const r=await fetch(path,Object.assign({},opts,{headers}));
+  const t=await r.text();
+  let j={};try{j=t?JSON.parse(t):{}}catch{}
+  if(r.status===401){location.reload();throw new Error('会话已过期');}
+  if(!r.ok)throw new Error(j.error||t||('http '+r.status));
+  return j;
+}
+async function logout(){try{await fetch('/api/logout',{method:'POST'});}catch{}localStorage.removeItem('auth_token');location.reload();}
+
+// ---------- state ----------
+const _sel={active:new Set(),scrap:new Set()};
+const _revealed=new Set();
+const _revealedKeys={};
+let _stateCache=null;
+const _page={active:1,cooldown:1,scrap:1};
+let _pageSize=20;
+let _logsLoaded=false;
+let _logCache=[];
+const _poolFilters={
+  active:{name:'',tier:'',reset:''},
+  cooldown:{name:'',tier:'',reset:''},
+  scrap:{name:'',tier:'',reset:''},
+};
+let _configCache=null;
+
+// ---------- pagination ----------
+function paginate(list,which){
+  const total=list.length;
+  const size=_pageSize>=10000?total:_pageSize;
+  const totalPages=Math.max(1,Math.ceil(total/Math.max(1,size)));
+  if(_page[which]>totalPages)_page[which]=totalPages;
+  if(_page[which]<1)_page[which]=1;
+  const start=(_page[which]-1)*size;
+  return {slice:list.slice(start,start+size),total,totalPages,current:_page[which]};
+}
+function pagerHtml(which,p){
+  if(p.total===0)return '';
+  const prevDis=p.current<=1?'disabled':'';
+  const nextDis=p.current>=p.totalPages?'disabled':'';
+  return `<div class="pager">
+    <span class="total">共 ${p.total} 条</span>
+    <button onclick="goPage('${which}',1)" ${prevDis} title="首页">«</button>
+    <button onclick="goPage('${which}',${p.current-1})" ${prevDis} title="上一页">‹</button>
+    <span class="pages">${p.current} / ${p.totalPages}</span>
+    <button onclick="goPage('${which}',${p.current+1})" ${nextDis} title="下一页">›</button>
+    <button onclick="goPage('${which}',${p.totalPages})" ${nextDis} title="末页">»</button>
+    <select onchange="setPageSize(this.value)">
+      <option value="10" ${_pageSize===10?'selected':''}>每页 10</option>
+      <option value="20" ${_pageSize===20?'selected':''}>每页 20</option>
+      <option value="50" ${_pageSize===50?'selected':''}>每页 50</option>
+      <option value="100" ${_pageSize===100?'selected':''}>每页 100</option>
+      <option value="99999" ${_pageSize>=99999?'selected':''}>全部</option>
+    </select>
+  </div>`;
+}
+function goPage(which,n){
+  _page[which]=n;
+  rerenderPool(which);
+}
+function setPageSize(n){
+  _pageSize=parseInt(n,10)||20;
+  _page.active=1;_page.cooldown=1;_page.scrap=1;
+  if(!_stateCache)return;
+  renderActive(_stateCache);renderCooldown(_stateCache);renderScrap(_stateCache);
+}
+function rerenderPool(which){
+  if(!_stateCache)return;
+  if(which==='active')renderActive(_stateCache);
+  else if(which==='cooldown')renderCooldown(_stateCache);
+  else if(which==='scrap')renderScrap(_stateCache);
+}
+function allStateKeys(s){return [].concat(s.keys||[],s.cooldown_keys||[],s.scrap_keys||[]);}
+function resetMs(k){if(!k.reset_at||String(k.reset_at).startsWith('0001-01-01'))return null;return new Date(k.reset_at).getTime();}
+function filterPool(list,which){
+  const f=_poolFilters[which]||{};
+  const name=(f.name||'').trim().toLowerCase();
+  const tier=(f.tier||'').trim().toLowerCase();
+  const now=Date.now();
+  return list.filter(k=>{
+    if(name && !(k.name||'').toLowerCase().includes(name))return false;
+    if(tier && !(k.tier||'').toLowerCase().includes(tier))return false;
+    const ms=resetMs(k);
+    if(f.reset==='expired' && !(ms!==null&&ms<=now))return false;
+    if(f.reset==='24h' && !(ms!==null&&ms>now&&ms-now<=24*3600*1000))return false;
+    if(f.reset==='7d' && !(ms!==null&&ms>now&&ms-now<=7*24*3600*1000))return false;
+    return true;
+  });
+}
+function setPoolFilter(which,field,value){
+  _poolFilters[which][field]=value;
+  _page[which]=1;
+  rerenderPool(which);
+}
+function clearPoolFilter(which){
+  _poolFilters[which]={name:'',tier:'',reset:''};
+  _page[which]=1;
+  updateFilterButtons();
+  rerenderPool(which);
+}
+function openFilter(ev,which,field){
+  ev.stopPropagation();
+  closeFilterPop();
+  const btn=ev.currentTarget;
+  const pop=document.createElement('div');
+  pop.id='filterPop';
+  pop.className='filter-pop show';
+  const val=_poolFilters[which][field]||'';
+  if(field==='reset'){
+    pop.innerHTML=`<select id="filterPopValue">
+      <option value="" ${val===''?'selected':''}>全部</option>
+      <option value="24h" ${val==='24h'?'selected':''}>24 小时内</option>
+      <option value="7d" ${val==='7d'?'selected':''}>7 天内</option>
+      <option value="expired" ${val==='expired'?'selected':''}>已到期</option>
+    </select><div class="mini-actions"><button onclick="applyFilterPop('${which}','${field}')">确定</button><button onclick="clearFilterField('${which}','${field}')">清除</button></div>`;
+  }else{
+    pop.innerHTML=`<input id="filterPopValue" placeholder="输入筛选值" value="${esc(val)}"/><div class="mini-actions"><button onclick="applyFilterPop('${which}','${field}')">确定</button><button onclick="clearFilterField('${which}','${field}')">清除</button></div>`;
+  }
+  document.body.appendChild(pop);
+  const rect=btn.getBoundingClientRect();
+  pop.style.left=Math.min(rect.left, window.innerWidth-230)+'px';
+  pop.style.top=(rect.bottom+6)+'px';
+  setTimeout(()=>document.getElementById('filterPopValue')?.focus(),20);
+}
+function closeFilterPop(){document.getElementById('filterPop')?.remove();}
+function applyFilterPop(which,field){
+  _poolFilters[which][field]=document.getElementById('filterPopValue')?.value||'';
+  _page[which]=1;
+  closeFilterPop();
+  updateFilterButtons();
+  rerenderPool(which);
+}
+function clearFilterField(which,field){
+  _poolFilters[which][field]='';
+  _page[which]=1;
+  closeFilterPop();
+  updateFilterButtons();
+  rerenderPool(which);
+}
+function updateFilterButtons(){
+  document.querySelectorAll('.filter-trigger').forEach(btn=>{
+    const [which,field]=(btn.dataset.filter||'').split(':');
+    btn.classList.toggle('active',!!(_poolFilters[which]&&_poolFilters[which][field]));
+  });
+}
+document.addEventListener('click',ev=>{if(!ev.target.closest('#filterPop')&&!ev.target.closest('.filter-trigger'))closeFilterPop();});
+function setValueIfIdle(id,value){
+  const el=document.getElementById(id);
+  if(el&&document.activeElement!==el)el.value=value;
+}
+function renderRetrySettings(s){
+  setValueIfIdle('retryCodes',s.retry_status_codes||'400,401,402,403,429,5xx');
+  setValueIfIdle('retryMax',s.max_retry_attempts||20);
+  setValueIfIdle('hobbyBlockedModels',(s.hobby_blocked_models||[]).join('\n'));
+}
+async function saveSettings(){
+  try{
+    const status_codes=document.getElementById('retryCodes').value.trim();
+    const max_attempts=parseInt(document.getElementById('retryMax').value,10)||20;
+    const hobby_blocked_text=document.getElementById('hobbyBlockedModels').value;
+    const r=await api('/api/settings',{method:'POST',body:JSON.stringify({status_codes,max_attempts,hobby_blocked_text})});
+    setValueIfIdle('retryCodes',r.retry_status_codes);
+    setValueIfIdle('retryMax',r.max_retry_attempts);
+    setValueIfIdle('hobbyBlockedModels',(r.hobby_blocked_models||[]).join('\n'));
+    await loadState();
+    toast('设置已保存','success');
+  }catch(e){toast(e.message,'error')}
+}
+
+async function loadState(){
+  try{
+    const s=await api('/api/state');
+    _stateCache=s;
+    renderMetrics(s);
+    renderRetrySettings(s);
+    renderActive(s);
+    renderCooldown(s);
+    renderScrap(s);
+    updateFilterButtons();
+    updateStickyButton(s);
+    syncBatchBar();
+  }catch(e){toast(e.message,'error',4000)}
+}
+
+async function loadConfig(){
+  try{
+    const cfg=await api('/api/config');
+    _configCache=cfg;
+    setValueIfIdle('cfgWebToken',cfg.web_auth_token||'');
+    setValueIfIdle('cfgApiTokens',(cfg.api_auth_tokens||[]).join('\n'));
+    setValueIfIdle('cfgProviderOrder',cfg.provider_order||'');
+    setValueIfIdle('cfgDefaultReasoning',cfg.default_reasoning_effort||'');
+    setValueIfIdle('cfgGatewayBase',cfg.gateway_base_url||'');
+    setValueIfIdle('cfgCooldownUsd',cfg.monthly_cooldown_usd||5);
+    setValueIfIdle('cfgMonthlyQuota',cfg.monthly_quota_per_key||5);
+    setValueIfIdle('cfgCooldownCodes',cfg.cooldown_status_codes||'402');
+    setValueIfIdle('cfgProxyScrapCodes',cfg.proxy_scrap_status_codes||'401');
+    setValueIfIdle('cfgProxyScrapThreshold',cfg.proxy_scrap_fail_threshold||3);
+    setValueIfIdle('cfgRefreshScrapCodes',cfg.refresh_scrap_status_codes||'401,403');
+    setValueIfIdle('cfgRefreshCooldownCodes',cfg.refresh_cooldown_status_codes||'');
+    setValueIfIdle('cfgListenAddr',cfg.listen_addr||'');
+    setValueIfIdle('cfgDebugDumpDir',cfg.debug_dump_dir||'');
+    const pass=document.getElementById('cfgPassthroughOnly');
+    if(pass&&document.activeElement!==pass)pass.checked=!!cfg.passthrough_only;
+  }catch(e){toast(e.message,'error')}
+}
+async function saveConfig(){
+  try{
+    const payload={
+      web_auth_token:document.getElementById('cfgWebToken').value.trim(),
+      api_auth_tokens:document.getElementById('cfgApiTokens').value.split(/\r?\n|[,;]/).map(s=>s.trim()).filter(Boolean),
+      provider_order:document.getElementById('cfgProviderOrder').value.trim(),
+      default_reasoning_effort:document.getElementById('cfgDefaultReasoning').value.trim(),
+      gateway_base_url:document.getElementById('cfgGatewayBase').value.trim(),
+      monthly_cooldown_usd:parseFloat(document.getElementById('cfgCooldownUsd').value)||5,
+      monthly_quota_per_key:parseFloat(document.getElementById('cfgMonthlyQuota').value)||5,
+      cooldown_status_codes:document.getElementById('cfgCooldownCodes').value.trim(),
+      proxy_scrap_status_codes:document.getElementById('cfgProxyScrapCodes').value.trim(),
+      proxy_scrap_fail_threshold:parseInt(document.getElementById('cfgProxyScrapThreshold').value,10)||3,
+      refresh_scrap_status_codes:document.getElementById('cfgRefreshScrapCodes').value.trim(),
+      refresh_cooldown_status_codes:document.getElementById('cfgRefreshCooldownCodes').value.trim(),
+      listen_addr:document.getElementById('cfgListenAddr').value.trim(),
+      debug_dump_dir:document.getElementById('cfgDebugDumpDir').value.trim(),
+      passthrough_only:!!document.getElementById('cfgPassthroughOnly').checked,
+    };
+    const cfg=await api('/api/config',{method:'POST',body:JSON.stringify(payload)});
+    _configCache=cfg;
+    await loadConfig();
+    await loadState();
+    toast('配置已保存','success');
+  }catch(e){toast(e.message,'error')}
+}
+function addRandomApiToken(){
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes=new Uint32Array(48);
+  crypto.getRandomValues(bytes);
+  let token='sk-';
+  for(const n of bytes)token+=chars[n%chars.length];
+  const el=document.getElementById('cfgApiTokens');
+  const cur=el.value.trim();
+  el.value=cur?cur+'\n'+token:token;
+  toast('已生成 API Key','success');
+}
+
+function renderMetrics(s){
+  const modeCard=s.sticky_mode
+    ?`<div class="metric"><div class="label">运行模式</div><div class="value" style="color:var(--amber)">粘性</div><div class="sub">锁定: ${esc(s.sticky_key_name||'无')}</div></div>`
+    :`<div class="metric"><div class="label">运行模式</div><div class="value" style="color:var(--green)">轮询</div><div class="sub">自动切换</div></div>`;
+  document.getElementById('metrics').innerHTML=`
+    ${modeCard}
+    <div class="metric"><div class="label">总余额</div><div class="value">$${fmt(s.total_balance)}</div><div class="sub">欠费 $${fmt(s.overdraft)}</div></div>
+    <div class="metric"><div class="label">可用额度</div><div class="value">$${fmt(s.active_balance)} <span class="muted">/ $${fmt(s.active_quota)}</span></div><div class="sub">${s.active_count} × $${fmt(s.monthly_quota_per_key)}</div></div>
+    <div class="metric"><div class="label">Key 总览</div><div class="value">${s.active_count} 活跃</div><div class="sub">${s.cooldown_count||0} 冷却 · ${s.scrap_count} 报废</div></div>
+  `;
+}
+
+function statusPill(k){
+  if(k.consec_fails>0)return `<span class="pill amber">异常 ${k.consec_fails} 次</span>`;
+  return `<span class="pill green">正常</span>`;
+}
+
+function keyCellHtml(k){
+  if(_revealed.has(k.id))return `<span class="key-cell">${esc(_revealedKeys[k.id]||'')}</span> <button class="icon-btn" onclick="hideKey('${k.id}')">隐藏</button>`;
+  return `<button class="icon-btn" onclick="showKey('${k.id}')">显示</button>`;
+}
+
+function nameCell(k,isLocked){
+  const lock=isLocked?'<span class="lock-ico">🔒</span>':'';
+  const name=k.name?esc(k.name):'<span class="muted">-</span>';
+  return `${lock}${name}`;
+}
+
+function tierCell(k){
+  if(!k.tier)return '<span class="muted">-</span>';
+  return `<span class="pill grey">${esc(k.tier)}</span>`;
+}
+
+function moreMenu(items){
+  return `<div class="more"><button class="icon-btn" onclick="toggleMoreMenu(event,this)">更多 ▾</button><div class="more-menu">${items.map(it=>`<button class="${it.cls||''}" onclick="${it.fn}">${it.label}</button>`).join('')}</div></div>`;
+}
+
+function renderActive(s){
+  const body=document.getElementById('activeBody');
+  const list=filterPool(s.keys||[],'active');
+  document.getElementById('tabCountActive').textContent=list.length;
+  const pagerWrap=document.getElementById('activePager');
+  if(!list.length){body.innerHTML='<tr><td colspan="10" class="empty">暂无活跃 key</td></tr>';if(pagerWrap)pagerWrap.innerHTML='';return;}
+  const p=paginate(list,'active');
+  if(pagerWrap)pagerWrap.innerHTML=pagerHtml('active',p);
+  body.innerHTML=p.slice.map(k=>{
+    const checked=_sel.active.has(k.id)?'checked':'';
+    const isLocked=s.sticky_mode&&s.sticky_key_id===k.id;
+    const more=moreMenu([
+      {label:isLocked?'已锁定':'锁定到此 key',fn:`stickySelect('${k.id}')`},
+      {label:'选模型测试',fn:`testKeyWithModel('${k.id}')`},
+      {label:'刷新余额',fn:`refreshBalanceOne('${k.id}')`},
+      {label:'重置月度',fn:`resetCost('${k.id}')`},
+      {label:'手动暂停',fn:`togglePause('${k.id}',true)`},
+      {label:'删除',cls:'danger',fn:`deleteKey('${k.id}')`},
+    ]);
+    return `<tr>
+      <td><input type="checkbox" class="sel-active" data-id="${k.id}" ${checked} onclick="onRowSelect('active','${k.id}',this.checked)"/></td>
+      <td>${nameCell(k,isLocked)}</td>
+      <td>${tierCell(k)}</td>
+      <td>${keyCellHtml(k)}</td>
+      <td>$${fmt(k.monthly_spent_usd)}</td>
+      <td>$${fmt(k.last_balance)}<div class="muted">累计 $${fmt(k.last_used_total)}</div></td>
+      <td>${k.proxy_request_count||0} 次<div class="muted">${dt(k.last_proxy_at)}</div></td>
+      <td>${statusPill(k)}</td>
+      <td class="muted">${dt(k.reset_at)}</td>
+      <td class="right"><div class="actions"><button class="icon-btn" onclick="testKey('${k.id}')">测试</button><button class="icon-btn" onclick="editKey('${k.id}')">编辑</button>${more}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCooldown(s){
+  const body=document.getElementById('cooldownBody');
+  const list=filterPool(s.cooldown_keys||[],'cooldown');
+  document.getElementById('tabCountCooldown').textContent=list.length;
+  const pagerWrap=document.getElementById('cooldownPager');
+  if(!list.length){body.innerHTML='<tr><td colspan="8" class="empty">暂无冷却 key</td></tr>';if(pagerWrap)pagerWrap.innerHTML='';return;}
+  const p=paginate(list,'cooldown');
+  if(pagerWrap)pagerWrap.innerHTML=pagerHtml('cooldown',p);
+  body.innerHTML=p.slice.map(k=>{
+    const more=moreMenu([
+      {label:'测试',fn:`testKey('${k.id}')`},
+      {label:'选模型测试',fn:`testKeyWithModel('${k.id}')`},
+      {label:'刷新余额',fn:`refreshBalanceOne('${k.id}')`},
+      {label:'报废',fn:`scrapKey('${k.id}')`},
+      {label:'删除',cls:'danger',fn:`deleteKey('${k.id}')`},
+    ]);
+    return `<tr>
+      <td>${nameCell(k,false)}</td>
+      <td>${tierCell(k)}</td>
+      <td>${keyCellHtml(k)}</td>
+      <td>$${fmt(k.monthly_spent_usd)}</td>
+      <td>$${fmt(k.last_balance)}<div class="muted">累计 $${fmt(k.last_used_total)}</div></td>
+      <td style="max-width:220px;word-break:break-word"><span class="pill amber">已冷却</span><div class="muted" style="margin-top:4px">${esc(k.last_error||'')}</div></td>
+      <td class="muted">${dt(k.reset_at)}</td>
+      <td class="right"><div class="actions"><button class="icon-btn green" onclick="resetCost('${k.id}')">恢复</button><button class="icon-btn" onclick="editKey('${k.id}')">编辑</button>${more}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderScrap(s){
+  const body=document.getElementById('scrapBody');
+  const list=filterPool(s.scrap_keys||[],'scrap');
+  document.getElementById('tabCountScrap').textContent=list.length;
+  const pagerWrap=document.getElementById('scrapPager');
+  if(!list.length){body.innerHTML='<tr><td colspan="9" class="empty">暂无报废 key</td></tr>';if(pagerWrap)pagerWrap.innerHTML='';return;}
+  const p=paginate(list,'scrap');
+  if(pagerWrap)pagerWrap.innerHTML=pagerHtml('scrap',p);
+  body.innerHTML=p.slice.map(k=>{
+    const checked=_sel.scrap.has(k.id)?'checked':'';
+    const more=moreMenu([
+      {label:'选模型测试',fn:`testKeyWithModel('${k.id}')`},
+      {label:'编辑',fn:`editKey('${k.id}')`},
+      {label:'删除',cls:'danger',fn:`deleteScrapped('${k.id}')`},
+    ]);
+    return `<tr>
+      <td><input type="checkbox" class="sel-scrap" data-id="${k.id}" ${checked} onclick="onRowSelect('scrap','${k.id}',this.checked)"/></td>
+      <td>${nameCell(k,false)}</td>
+      <td>${tierCell(k)}</td>
+      <td>${keyCellHtml(k)}</td>
+      <td>$${fmt(k.last_balance)}</td>
+      <td>$${fmt(k.last_used_total)}</td>
+      <td style="max-width:220px;word-break:break-word;color:var(--red);font-size:12px">${esc(k.scrapped_error||'-')}</td>
+      <td class="muted">${dt(k.scrapped_at)}</td>
+      <td class="right"><div class="actions"><button class="icon-btn" onclick="testKey('${k.id}')">测试</button><button class="icon-btn green" onclick="restoreKey('${k.id}')">恢复</button>${more}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function updateStickyButton(s){
+  const btn=document.getElementById('stickyBtn');
+  btn.textContent=s.sticky_mode?'切换为轮询':'切换为粘性';
+  btn.className=s.sticky_mode?'amber':'green';
+  btn.style.color='#fff';
+}
+
+// ---------- tabs ----------
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  document.querySelectorAll('.tab-panel').forEach(p=>{
+    const should=p.id==='panel-'+name;
+    if(should){
+      p.classList.remove('active');
+      void p.offsetWidth;  // force reflow so fadeUp 动画重新跑
+      p.classList.add('active');
+    }else{
+      p.classList.remove('active');
+    }
+  });
+  if(name==='logs')loadLogs();
+  if(name==='config')loadConfig();
+}
+
+// ---------- more menu ----------
+function toggleMoreMenu(ev,btn){
+  ev.stopPropagation();
+  const wrap=btn.parentElement;
+  document.querySelectorAll('.more.open').forEach(m=>{if(m!==wrap)m.classList.remove('open')});
+  wrap.classList.toggle('open');
+}
+document.addEventListener('click',()=>document.querySelectorAll('.more.open').forEach(m=>m.classList.remove('open')));
+
+// ---------- sticky ----------
+async function toggleSticky(){try{await api('/api/sticky',{method:'POST'});await loadState();toast('模式已切换','success')}catch(e){toast(e.message,'error')}}
+async function stickySelect(id){try{await api('/api/sticky/select',{method:'POST',body:JSON.stringify({id})});await loadState();toast('已锁定','success')}catch(e){toast(e.message,'error')}}
+
+// ---------- key reveal ----------
+async function showKey(id){try{const r=await api('/api/keys/'+id);_revealedKeys[id]=r.api_key||'';_revealed.add(id);await loadState();}catch(e){toast(e.message,'error')}}
+function hideKey(id){_revealed.delete(id);delete _revealedKeys[id];loadState();}
+
+// ---------- create / edit / delete ----------
+async function createKey(){
+  const inp=document.getElementById('apiKey');
+  const raw=inp.value.trim();
+  if(!raw){toast('请填写 API Key','warn');return;}
+  // 兼容格式：[名称] [等级] vck_xxx；纯 vck_xxx 时自动编号
+  const parts=raw.split(/\s+/).filter(Boolean);
+  const keyIdx=parts.findIndex(p=>/^vck_[A-Za-z0-9]+$/.test(p));
+  if(keyIdx<0){toast('未识别到 vck_ key','error');return;}
+  const payload={api_key:parts[keyIdx]};
+  const before=parts.slice(0,keyIdx);
+  if(before.length===0){
+    payload.name='auto';
+  }else{
+    payload.name=before[0];
+    if(before.length>=2)payload.tier=before[1];
+  }
+  try{
+    await api('/api/keys',{method:'POST',body:JSON.stringify(payload)});
+    inp.value='';
+    await loadState();
+    toast('新增成功','success');
+  }catch(e){toast(e.message,'error')}
+}
+function openBulkImport(){document.getElementById('bulkText').value='';openOverlay('modalBulk');setTimeout(()=>document.getElementById('bulkText').focus(),50);}
+async function doBulkImport(){
+  try{
+    const raw=document.getElementById('bulkText').value;
+    if(!raw.trim()){toast('请粘贴文本','warn');return;}
+    const r=await api('/api/keys/bulk',{method:'POST',body:JSON.stringify({raw})});
+    closeOverlay('modalBulk');
+    await loadState();
+    toast(`识别 ${r.total_found} 个，新增 ${r.added} 个`,'success',3500);
+  }catch(e){toast(e.message,'error')}
+}
+let _editId=null;
+async function editKey(id){
+  try{
+    const r=await api('/api/keys/'+id);
+    _editId=id;
+    document.getElementById('editName').value=r.name||'';
+    document.getElementById('editTier').value=r.tier||'';
+    document.getElementById('editKey').value=r.api_key||'';
+    openOverlay('modalEdit');
+  }catch(e){toast(e.message,'error')}
+}
+async function saveEdit(){
+  try{
+    const name=document.getElementById('editName').value.trim();
+    const tier=document.getElementById('editTier').value.trim();
+    const key=document.getElementById('editKey').value.trim();
+    // name / tier 都允许空，按当前值覆盖。api_key 留空 = 不动。
+    const patch={name,tier};
+    if(key)patch.api_key=key;
+    await api('/api/keys/'+_editId,{method:'PATCH',body:JSON.stringify(patch)});
+    closeOverlay('modalEdit');
+    await loadState();
+    toast('已保存','success');
+  }catch(e){toast(e.message,'error')}
+}
+
+async function deleteKey(id){
+  if(!await confirmModal('确定删除这个 key？此操作不可恢复','删除确认','red'))return;
+  try{await api('/api/keys/'+id,{method:'DELETE'});await loadState();toast('已删除','success');}catch(e){toast(e.message,'error')}
+}
+async function deleteScrapped(id){
+  if(!await confirmModal('确定删除这个报废 key？','删除确认','red'))return;
+  try{await api('/api/keys/'+id,{method:'DELETE'});await loadState();toast('已删除','success');}catch(e){toast(e.message,'error')}
+}
+async function restoreKey(id){
+  if(!await confirmModal('确定恢复这个 key？将重置月度消费','恢复确认'))return;
+  try{await api('/api/keys/'+id,{method:'PATCH',body:JSON.stringify({scrapped:false})});await loadState();toast('已恢复','success');}catch(e){toast(e.message,'error')}
+}
+async function scrapKey(id){
+  if(!await confirmModal('确定把这个 key 移到报废池？','报废确认'))return;
+  try{await api('/api/keys/'+id,{method:'PATCH',body:JSON.stringify({scrapped:true})});await loadState();toast('已报废','success');}catch(e){toast(e.message,'error')}
+}
+async function togglePause(id,paused){
+  try{await api('/api/keys/'+id,{method:'PATCH',body:JSON.stringify({paused})});await loadState();toast(paused?'已冷却':'已解冻','success');}catch(e){toast(e.message,'error')}
+}
+async function resetCost(id){
+  try{await api('/api/keys/'+id,{method:'PATCH',body:JSON.stringify({reset_cost:true})});await loadState();toast('已重置月度并解冻','success');}catch(e){toast(e.message,'error')}
+}
+
+// ---------- refresh balance ----------
+async function refreshBalanceAll(){
+  const btn=document.getElementById('btnRefreshAll');
+  btn.disabled=true;const old=btn.innerHTML;btn.innerHTML='<span class="spinner"></span> 刷新中';
+  try{
+    const r=await api('/api/refresh',{method:'POST',body:'{}'});
+    const failed=Object.keys(r.errors||{}).length;
+    await loadState();
+    if(failed>0)toast(`刷新完成：成功 ${r.refreshed||0}，失败 ${failed}`,'warn',3500);
+    else toast(`已刷新 ${r.refreshed||0} 个 key`,'success');
+  }catch(e){toast(e.message,'error')}
+  finally{btn.disabled=false;btn.innerHTML=old;}
+}
+async function refreshBalanceOne(id){
+  try{const r=await api('/api/refresh',{method:'POST',body:JSON.stringify({id})});if((r.errors||{})[id])toast(r.errors[id],'error');else toast('已刷新','success');await loadState();}catch(e){toast(e.message,'error')}
+}
+
+// ---------- test key ----------
+async function testKey(id,model){
+  try{
+    const body=model?{model}:{};
+    const r=await api('/api/test/'+id,{method:'POST',body:JSON.stringify(body)});
+    if(r.ok){toast(`✓ 存活 ${r.model} · ${r.elapsed_ms}ms`,'success',3500);}
+    else{toast(`✗ 失败 (${r.status_code||'?'}) ${truncate(r.error||'',80)}`,'error',4500);}
+    await loadState();
+  }catch(e){toast(e.message,'error')}
+}
+
+let _modalKeyId=null,_modalModels=[];
+function renderModalList(filter){
+  const list=document.getElementById('modelList');
+  const q=(filter||'').toLowerCase();
+  const filtered=_modalModels.filter(m=>!q||m.toLowerCase().includes(q));
+  if(!filtered.length){list.innerHTML='<div class="model-item" style="color:#999;cursor:default">无匹配模型</div>';return;}
+  list.innerHTML=filtered.map(m=>{
+    const isC=m.toLowerCase().includes('claude');
+    return `<div class="model-item${isC?' claude':''}" onclick="pickModel('${m.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">${esc(m)}</div>`;
+  }).join('');
+}
+async function pickModel(m){closeOverlay('modalModels');await testKey(_modalKeyId,m);}
+async function testKeyWithModel(id){
+  try{
+    _modalKeyId=id;
+    const list=document.getElementById('modelList');
+    const search=document.getElementById('modelSearch');
+    const hint=document.getElementById('modelHint');
+    search.value='';
+    list.innerHTML='<div class="model-item" style="color:#999;cursor:default">加载模型列表...</div>';
+    hint.textContent='正在拉取...';
+    openOverlay('modalModels');
+    setTimeout(()=>search.focus(),50);
+    const r=await api('/api/test/'+id+'/models');
+    if(!r.ok){list.innerHTML=`<div class="model-item" style="color:var(--red);cursor:default">${esc(r.error||'获取失败')}</div>`;hint.textContent='';return;}
+    _modalModels=r.models||[];
+    const cc=_modalModels.filter(m=>m.toLowerCase().includes('claude')).length;
+    hint.textContent=`共 ${_modalModels.length} 个模型（${cc} 个 Claude），点击即测`;
+    renderModalList('');
+  }catch(e){document.getElementById('modelList').innerHTML=`<div class="model-item" style="color:var(--red);cursor:default">${esc(e.message)}</div>`;}
+}
+document.getElementById('modelSearch').addEventListener('input',e=>renderModalList(e.target.value));
+
+// ---------- batch ----------
+function onRowSelect(which,id,checked){const set=_sel[which];if(checked)set.add(id);else set.delete(id);syncBatchBar();}
+function toggleSelectAll(which,checked){const set=_sel[which];const cls=which==='active'?'.sel-active':'.sel-scrap';document.querySelectorAll(cls).forEach(cb=>{cb.checked=checked;const id=cb.getAttribute('data-id');if(checked)set.add(id);else set.delete(id);});syncBatchBar();}
+function clearSelect(which){_sel[which].clear();const cls=which==='active'?'.sel-active':'.sel-scrap';document.querySelectorAll(cls).forEach(cb=>cb.checked=false);const head=document.getElementById(which==='active'?'activeAll':'scrapAll');if(head)head.checked=false;syncBatchBar();}
+function syncBatchBar(){const a=_sel.active.size,b=_sel.scrap.size;const ab=document.getElementById('activeBatch'),sb=document.getElementById('scrapBatch');if(ab){ab.classList.toggle('show',a>0);document.getElementById('activeBatchCount').textContent=a;}if(sb){sb.classList.toggle('show',b>0);document.getElementById('scrapBatchCount').textContent=b;}}
+
+async function batchAction(action,which){
+  const ids=Array.from(_sel[which]);if(!ids.length)return;
+  try{const r=await api('/api/keys/batch',{method:'POST',body:JSON.stringify({action,ids})});_sel[which].clear();await loadState();if(r.missing)toast(`处理 ${r.processed}，跳过 ${r.missing}`,'warn');else toast(`处理 ${r.processed} 个`,'success');}catch(e){toast(e.message,'error')}
+}
+async function batchDelete(which){const n=_sel[which].size;if(!n)return;if(!await confirmModal(`确定删除选中的 ${n} 个 key？此操作不可恢复`,'批量删除','red'))return;await batchAction('delete',which);}
+async function batchScrap(){const n=_sel.active.size;if(!n)return;if(!await confirmModal(`确定报废选中的 ${n} 个 key？`,'批量报废'))return;await batchAction('scrap','active');}
+async function batchRestore(){const n=_sel.scrap.size;if(!n)return;if(!await confirmModal(`确定恢复选中的 ${n} 个 key？`,'批量恢复'))return;await batchAction('restore','scrap');}
+async function batchTest(){
+  const ids=Array.from(_sel.scrap);if(!ids.length)return;
+  if(!await confirmModal(`使用 haiku-4.5 测试选中的 ${ids.length} 个 key？能出字的会自动移回活跃池`,'批量测试'))return;
+  try{
+    const r=await api('/api/keys/batch/test',{method:'POST',body:JSON.stringify({ids,restore:true})});
+    _sel.scrap.clear();await loadState();
+    const lines=(r.results||[]).map(x=>x.ok?`✓ ${x.name}${x.restored?' (已恢复)':''}  ${(x.content||'').slice(0,60)}`:`✗ ${x.name}${x.status_code?' ('+x.status_code+')':''}  ${(x.error||'').slice(0,80)}`).join('\n');
+    infoModal(`测试完成：通过 ${r.passed}/${r.total}，已恢复 ${r.restored}`,lines||'(无结果)');
+  }catch(e){toast(e.message,'error')}
+}
+
+// ---------- logs ----------
+async function loadLogs(){
+  try{
+    const r=await api('/api/logs');
+    _logCache=r.logs||[];
+    renderLogs();
+  }catch(e){toast(e.message,'error')}
+}
+function renderLogs(){
+    const lb=document.getElementById('logbody');
+    const cnt=document.getElementById('tabCountLogs');
+    const q=(document.getElementById('logFilterText')?.value||'').trim().toLowerCase();
+    const status=document.getElementById('logFilterStatus')?.value||'';
+    const logs=_logCache.filter(l=>{
+      if(status==='success'&&!l.success)return false;
+      if(status==='failed'&&l.success)return false;
+      if(status==='retried'&&!l.retried)return false;
+      if(q){
+        const hay=[l.model,l.key_name,l.status_code,l.error,l.path].map(x=>String(x||'').toLowerCase()).join(' ');
+        if(!hay.includes(q))return false;
+      }
+      return true;
+    });
+    if(cnt)cnt.textContent=logs.length;
+    if(!logs.length){lb.innerHTML='<tr><td colspan="7" class="empty">暂无日志</td></tr>';return;}
+    lb.innerHTML=logs.map(l=>{
+      const sc=l.success?`<span class="pill green">${l.status_code}</span>`:`<span class="pill red">${l.status_code||'×'}</span>`;
+      return `<tr><td style="white-space:nowrap">${dt(l.time)}</td><td style="font-family:Consolas,monospace">${esc(l.model||'-')}</td><td>${esc(l.key_name)}</td><td>${sc}</td><td>${l.elapsed_ms}ms</td><td>${l.retried?'<span class="pill amber">重试</span>':'-'}</td><td style="max-width:240px;word-break:break-word;color:var(--red)">${esc(l.error||'')}</td></tr>`;
+    }).join('');
+}
+
+// init
+loadState();loadLogs();loadConfig();
+setInterval(loadState,30000);
+</script>
+</body>
+</html>
