@@ -206,6 +206,32 @@ func isHobbyTier(tier string) bool {
 	return strings.EqualFold(strings.TrimSpace(tier), "hobby")
 }
 
+func isTeamTier(tier string) bool {
+	return strings.EqualFold(strings.TrimSpace(tier), "team")
+}
+
+func selectProxyCandidatePool(team, hobby []proxyCandidate, hobbyBlocked bool) []proxyCandidate {
+	if len(team) > 0 {
+		return team
+	}
+	if hobbyBlocked {
+		return nil
+	}
+	return hobby
+}
+
+func rotateProxyCandidates(list []proxyCandidate, turn uint64) []proxyCandidate {
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+	if len(list) == 0 {
+		return list
+	}
+	start := int(turn % uint64(len(list)))
+	result := make([]proxyCandidate, 0, len(list))
+	result = append(result, list[start:]...)
+	result = append(result, list[:start]...)
+	return result
+}
+
 func modelBlockedForHobby(model string, patterns []string) bool {
 	name := normalizeModelName(model)
 	if name == "" {
@@ -243,19 +269,27 @@ func (s *AppState) nextProxyCandidates(model string) []proxyCandidate {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hobbyBlocked := modelBlockedForHobby(model, s.HobbyBlocked)
-	list := make([]proxyCandidate, 0, len(s.Keys))
+	team := make([]proxyCandidate, 0, len(s.Keys))
+	hobby := make([]proxyCandidate, 0, len(s.Keys))
 	for _, k := range s.Keys {
 		roll30DayWindow(k)
-		if !k.Scrapped && !k.Paused && strings.TrimSpace(k.APIKey) != "" && (!hobbyBlocked || !isHobbyTier(k.Tier)) {
-			list = append(list, proxyCandidate{ID: k.ID, APIKey: k.APIKey, Tier: k.Tier})
+		if k.Scrapped || k.Paused || strings.TrimSpace(k.APIKey) == "" {
+			continue
+		}
+		c := proxyCandidate{ID: k.ID, APIKey: k.APIKey, Tier: k.Tier}
+		switch {
+		case isTeamTier(k.Tier):
+			team = append(team, c)
+		case isHobbyTier(k.Tier):
+			hobby = append(hobby, c)
 		}
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
-
+	list := selectProxyCandidatePool(team, hobby, hobbyBlocked)
 	if len(list) == 0 {
 		return list
 	}
 
+	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 	if s.StickyMode {
 		stickyIdx := -1
 		if s.StickyKeyID != "" {
@@ -268,11 +302,8 @@ func (s *AppState) nextProxyCandidates(model string) []proxyCandidate {
 		}
 		if stickyIdx < 0 {
 			stickyIdx = 0
-			// 若当前粘性 key 被本次模型规则排除，只在这次请求临时使用可用 key。
-			if !hobbyBlocked || s.StickyKeyID == "" {
-				s.StickyKeyID = list[0].ID
-				_ = s.save()
-			}
+			s.StickyKeyID = list[0].ID
+			_ = s.save()
 		}
 		result := make([]proxyCandidate, 0, len(list))
 		result = append(result, list[stickyIdx])
@@ -284,13 +315,10 @@ func (s *AppState) nextProxyCandidates(model string) []proxyCandidate {
 		return result
 	}
 
-	start := int(s.proxyTurn % uint64(len(list)))
+	turn := s.proxyTurn
 	s.proxyTurn++
 	_ = s.save()
-	result := make([]proxyCandidate, 0, len(list))
-	result = append(result, list[start:]...)
-	result = append(result, list[:start]...)
-	return result
+	return rotateProxyCandidates(list, turn)
 }
 
 func (s *AppState) markProxySuccess(id string) {

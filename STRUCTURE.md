@@ -56,7 +56,7 @@ Vercel AI Gateway 多 key 轮询器 / 代理。Go 单进程，无外部依赖，
 每行格式：`[name] [tier] vck_xxx`，分隔符任意空白。`strings.Fields` 切 token，找到第一个 `vck_xxx` token，它前面的 token 依次当 name / tier（最多取两个）。一行有多个 `vck_` 时只第一个能带 name/tier，其余字段留空。纯 `vck_xxx` 一行也支持（name/tier 均空）。
 
 **轮询 / 粘性**
-- 轮询模式：`proxyTurn` 自增取模，按 ID 排序的活跃 key 列表里轮转
+- 轮询模式：`proxyTurn` 自增取模，只在当前可用池里轮转：有 `team` 活跃 key 时只轮询 team；team 全部冷却/报废/不可用后才切到 `hobby`。模型命中 `hobby_blocked_models` 时会禁止 hobby，若此时没有可用 team，则直接返回无可用 key 错误。
 - 粘性模式：锁住 `StickyKeyID` 直到该 key 冷却/报废才换；其余候选作为 fallback 防打断
 - `hobby_blocked_models` 存模型级 Hobby 限制规则，默认含 `anthropic/claude-opus-4.5`、`anthropic/claude-opus-4.6`、`anthropic/claude-opus-4.7`。匹配规则时会排除 `tier=hobby` 的活跃 key，仍可使用 team/pro 等非 Hobby key；设置页可添加/删除规则，支持每行一个模型或 `*` 结尾前缀。
 - 重试状态码和最大尝试次数存 `state.json`：默认 `400,401,402,403,429,5xx`，最大尝试次数默认/上限 20（包含首次请求）。设置页可改成如 `429,401`，表示只对这些状态切换下一个 key。
