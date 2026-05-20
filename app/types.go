@@ -20,21 +20,25 @@ const (
 	defaultRefreshScrapCodes = "401,403"
 	defaultMaxRetryAttempts  = 20
 	maxAllowedRetryAttempts  = 20
+	defaultPreferredTier     = "team"
 )
 
 type AppState struct {
-	mu           sync.RWMutex
-	filePath     string
-	proxyTurn    uint64
-	Cooldown     float64         `json:"cooldown_usd"`
-	LastSaved    time.Time       `json:"last_saved"`
-	Keys         map[string]*Key `json:"keys"`
-	StickyMode   bool            `json:"sticky_mode"`
-	StickyKeyID  string          `json:"sticky_key_id,omitempty"`
-	RetryCodes   string          `json:"retry_status_codes,omitempty"`
-	MaxAttempts  int             `json:"max_retry_attempts,omitempty"`
-	HobbyBlocked []string        `json:"hobby_blocked_models"`
-	TeamOnly     []string        `json:"team_only_models,omitempty"`
+	mu            sync.RWMutex
+	filePath      string
+	proxyTurn     uint64
+	Cooldown      float64         `json:"cooldown_usd"`
+	LastSaved     time.Time       `json:"last_saved"`
+	Keys          map[string]*Key `json:"keys"`
+	StickyMode    bool            `json:"sticky_mode"`
+	StickyKeyID   string          `json:"sticky_key_id,omitempty"`
+	RetryCodes    string          `json:"retry_status_codes,omitempty"`
+	MaxAttempts   int             `json:"max_retry_attempts,omitempty"`
+	HobbyBlocked  []string        `json:"hobby_blocked_models"`
+	PreferredTier string          `json:"preferred_tier,omitempty"`
+	TeamPriority  []string        `json:"team_priority_models,omitempty"`
+	HobbyPriority []string        `json:"hobby_priority_models,omitempty"`
+	TeamOnly      []string        `json:"team_only_models,omitempty"`
 }
 
 type Key struct {

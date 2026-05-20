@@ -78,12 +78,58 @@ func TestNextProxyCandidatesUsesHobbyWhenNoTeamAvailable(t *testing.T) {
 	requireIDs(t, got, []string{"02-hobby"})
 }
 
+func TestNextProxyCandidatesCanPreferHobbyByDefault(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-team":  {ID: "01-team", Tier: "team", APIKey: "vck_team_1"},
+		"02-hobby": {ID: "02-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+	})
+	state.PreferredTier = "hobby"
+
+	got := candidateIDs(state.nextProxyCandidates("openai/gpt-4.1"))
+	requireIDs(t, got, []string{"02-hobby"})
+}
+
+func TestNextProxyCandidatesTeamPriorityRuleOverridesHobbyDefault(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-team":  {ID: "01-team", Tier: "team", APIKey: "vck_team_1"},
+		"02-hobby": {ID: "02-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+	})
+	state.PreferredTier = "hobby"
+	state.TeamPriority = []string{"anthropic/claude-opus-*"}
+
+	got := candidateIDs(state.nextProxyCandidates("anthropic/claude-opus-4.5"))
+	requireIDs(t, got, []string{"01-team"})
+}
+
+func TestNextProxyCandidatesHobbyPriorityRuleOverridesTeamDefault(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-team":  {ID: "01-team", Tier: "team", APIKey: "vck_team_1"},
+		"02-hobby": {ID: "02-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+	})
+	state.HobbyPriority = []string{"anthropic/claude-haiku-*"}
+
+	got := candidateIDs(state.nextProxyCandidates("anthropic/claude-haiku-4.5"))
+	requireIDs(t, got, []string{"02-hobby"})
+}
+
 func TestNextProxyCandidatesStillBlocksHobbyForBlockedModels(t *testing.T) {
 	state := testState(t, map[string]*Key{
 		"01-hobby": {ID: "01-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
 		"02-team":  {ID: "02-team", Tier: "team", APIKey: "vck_team_1"},
 	})
 	state.HobbyBlocked = []string{"anthropic/claude-opus-*"}
+
+	got := candidateIDs(state.nextProxyCandidates("anthropic/claude-opus-4.5"))
+	requireIDs(t, got, []string{"02-team"})
+}
+
+func TestNextProxyCandidatesHobbyBlockedOverridesHobbyPriority(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-hobby": {ID: "01-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+		"02-team":  {ID: "02-team", Tier: "team", APIKey: "vck_team_1"},
+	})
+	state.HobbyBlocked = []string{"anthropic/claude-opus-*"}
+	state.HobbyPriority = []string{"anthropic/claude-opus-*"}
 
 	got := candidateIDs(state.nextProxyCandidates("anthropic/claude-opus-4.5"))
 	requireIDs(t, got, []string{"02-team"})

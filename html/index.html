@@ -348,6 +348,25 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
           <div class="form-row"><label>每行一个模型或前缀，可用 * 结尾</label><textarea id="hobbyBlockedModels" placeholder="anthropic/claude-opus-4.5&#10;claude-opus-4.6&#10;anthropic/claude-opus-*"></textarea></div>
           <button onclick="saveSettings()">保存模型规则</button>
         </div>
+        <div class="settings-box">
+          <h3>Key 等级优先级</h3>
+          <div class="tab-hint">默认优先级用于所有未命中模型规则的请求；模型规则命中时覆盖默认优先级。</div>
+          <div class="form-row">
+            <label>默认优先等级</label>
+            <select id="preferredTier">
+              <option value="team">Team 优先</option>
+              <option value="hobby">Hobby 优先</option>
+            </select>
+          </div>
+          <button onclick="saveSettings()">保存优先级</button>
+        </div>
+        <div class="settings-box">
+          <h3>模型优先级规则</h3>
+          <div class="tab-hint">Hobby 不可用模型仍是硬限制；同时命中时会使用 team。</div>
+          <div class="form-row"><label>这些模型优先 Team</label><textarea id="teamPriorityModels" placeholder="anthropic/claude-opus-*&#10;openai/gpt-5.5"></textarea></div>
+          <div class="form-row"><label>这些模型优先 Hobby</label><textarea id="hobbyPriorityModels" placeholder="anthropic/claude-haiku-*&#10;openai/gpt-5.4-mini"></textarea></div>
+          <button onclick="saveSettings()">保存模型优先级</button>
+        </div>
       </div>
       </div>
 
@@ -656,16 +675,25 @@ function renderRetrySettings(s){
   setValueIfIdle('retryCodes',s.retry_status_codes||'400,401,402,403,429,5xx');
   setValueIfIdle('retryMax',s.max_retry_attempts||20);
   setValueIfIdle('hobbyBlockedModels',(s.hobby_blocked_models||[]).join('\n'));
+  setValueIfIdle('preferredTier',s.preferred_tier||'team');
+  setValueIfIdle('teamPriorityModels',(s.team_priority_models||[]).join('\n'));
+  setValueIfIdle('hobbyPriorityModels',(s.hobby_priority_models||[]).join('\n'));
 }
 async function saveSettings(){
   try{
     const status_codes=document.getElementById('retryCodes').value.trim();
     const max_attempts=parseInt(document.getElementById('retryMax').value,10)||20;
     const hobby_blocked_text=document.getElementById('hobbyBlockedModels').value;
-    const r=await api('/api/settings',{method:'POST',body:JSON.stringify({status_codes,max_attempts,hobby_blocked_text})});
+    const preferred_tier=document.getElementById('preferredTier').value;
+    const team_priority_text=document.getElementById('teamPriorityModels').value;
+    const hobby_priority_text=document.getElementById('hobbyPriorityModels').value;
+    const r=await api('/api/settings',{method:'POST',body:JSON.stringify({status_codes,max_attempts,hobby_blocked_text,preferred_tier,team_priority_text,hobby_priority_text})});
     setValueIfIdle('retryCodes',r.retry_status_codes);
     setValueIfIdle('retryMax',r.max_retry_attempts);
     setValueIfIdle('hobbyBlockedModels',(r.hobby_blocked_models||[]).join('\n'));
+    setValueIfIdle('preferredTier',r.preferred_tier||'team');
+    setValueIfIdle('teamPriorityModels',(r.team_priority_models||[]).join('\n'));
+    setValueIfIdle('hobbyPriorityModels',(r.hobby_priority_models||[]).join('\n'));
     await loadState();
     toast('设置已保存','success');
   }catch(e){toast(e.message,'error')}

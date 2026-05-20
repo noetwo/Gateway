@@ -97,6 +97,7 @@ func handleGetState(state *AppState, rtCfg *RuntimeConfig) http.HandlerFunc {
 		state.mu.RUnlock()
 		retryCodes, maxRetryAttempts := state.retrySettings()
 		hobbyBlockedModels := state.hobbyBlockedSettings()
+		preferredTier, teamPriorityModels, hobbyPriorityModels := state.tierRoutingSettings()
 		writeJSON(w, http.StatusOK, map[string]any{
 			"cooldown_usd":          state.Cooldown,
 			"keys":                  activeKeys,
@@ -120,16 +121,24 @@ func handleGetState(state *AppState, rtCfg *RuntimeConfig) http.HandlerFunc {
 			"retry_status_codes":    retryCodes,
 			"max_retry_attempts":    maxRetryAttempts,
 			"hobby_blocked_models":  hobbyBlockedModels,
+			"preferred_tier":        preferredTier,
+			"team_priority_models":  teamPriorityModels,
+			"hobby_priority_models": hobbyPriorityModels,
 		})
 	}
 }
 
 func handleSettings(state *AppState) http.HandlerFunc {
 	type settingsReq struct {
-		StatusCodes        string   `json:"status_codes"`
-		MaxAttempts        int      `json:"max_attempts"`
-		HobbyBlockedModels []string `json:"hobby_blocked_models"`
-		HobbyBlockedText   *string  `json:"hobby_blocked_text"`
+		StatusCodes         string   `json:"status_codes"`
+		MaxAttempts         int      `json:"max_attempts"`
+		HobbyBlockedModels  []string `json:"hobby_blocked_models"`
+		HobbyBlockedText    *string  `json:"hobby_blocked_text"`
+		PreferredTier       *string  `json:"preferred_tier"`
+		TeamPriorityModels  []string `json:"team_priority_models"`
+		TeamPriorityText    *string  `json:"team_priority_text"`
+		HobbyPriorityModels []string `json:"hobby_priority_models"`
+		HobbyPriorityText   *string  `json:"hobby_priority_text"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
@@ -140,10 +149,14 @@ func handleSettings(state *AppState) http.HandlerFunc {
 		case http.MethodGet:
 			codes, maxAttempts := state.retrySettings()
 			hobbyBlockedModels := state.hobbyBlockedSettings()
+			preferredTier, teamPriorityModels, hobbyPriorityModels := state.tierRoutingSettings()
 			writeJSON(w, http.StatusOK, map[string]any{
-				"retry_status_codes":   codes,
-				"max_retry_attempts":   maxAttempts,
-				"hobby_blocked_models": hobbyBlockedModels,
+				"retry_status_codes":    codes,
+				"max_retry_attempts":    maxAttempts,
+				"hobby_blocked_models":  hobbyBlockedModels,
+				"preferred_tier":        preferredTier,
+				"team_priority_models":  teamPriorityModels,
+				"hobby_priority_models": hobbyPriorityModels,
 			})
 		case http.MethodPost:
 			var req settingsReq
@@ -165,8 +178,25 @@ func handleSettings(state *AppState) http.HandlerFunc {
 			} else if req.HobbyBlockedModels != nil {
 				state.HobbyBlocked = normalizeModelPatterns(req.HobbyBlockedModels, false)
 			}
+			if req.PreferredTier != nil {
+				state.PreferredTier = normalizePreferredTier(*req.PreferredTier)
+			}
+			if req.TeamPriorityText != nil {
+				state.TeamPriority = parseModelPatternsText(*req.TeamPriorityText)
+			} else if req.TeamPriorityModels != nil {
+				state.TeamPriority = normalizeModelPatterns(req.TeamPriorityModels, false)
+			}
+			if req.HobbyPriorityText != nil {
+				state.HobbyPriority = parseModelPatternsText(*req.HobbyPriorityText)
+			} else if req.HobbyPriorityModels != nil {
+				state.HobbyPriority = normalizeModelPatterns(req.HobbyPriorityModels, false)
+			}
+			state.normalizeTierRoutingSettings()
 			state.TeamOnly = nil
 			hobbyBlockedModels := append([]string(nil), state.HobbyBlocked...)
+			preferredTier := state.PreferredTier
+			teamPriorityModels := append([]string(nil), state.TeamPriority...)
+			hobbyPriorityModels := append([]string(nil), state.HobbyPriority...)
 			err = state.save()
 			state.mu.Unlock()
 			if err != nil {
@@ -174,9 +204,12 @@ func handleSettings(state *AppState) http.HandlerFunc {
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
-				"retry_status_codes":   codes,
-				"max_retry_attempts":   maxAttempts,
-				"hobby_blocked_models": hobbyBlockedModels,
+				"retry_status_codes":    codes,
+				"max_retry_attempts":    maxAttempts,
+				"hobby_blocked_models":  hobbyBlockedModels,
+				"preferred_tier":        preferredTier,
+				"team_priority_models":  teamPriorityModels,
+				"hobby_priority_models": hobbyPriorityModels,
 			})
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})

@@ -24,6 +24,7 @@ func loadState(path string, cooldown float64) (*AppState, error) {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		state.normalizeRetrySettings()
 		state.normalizeHobbyBlockedModels()
+		state.normalizeTierRoutingSettings()
 		if err := state.save(); err != nil {
 			return nil, err
 		}
@@ -48,6 +49,7 @@ func loadState(path string, cooldown float64) (*AppState, error) {
 	}
 	state.normalizeRetrySettings()
 	state.normalizeHobbyBlockedModels()
+	state.normalizeTierRoutingSettings()
 
 	for _, k := range state.Keys {
 		roll30DayWindow(k)
@@ -107,6 +109,16 @@ func normalizeRetryStatusCodes(raw string) (string, error) {
 
 func parseModelPatternsText(raw string) []string {
 	return normalizeModelPatterns([]string{raw}, false)
+}
+
+func normalizePreferredTier(raw string) string {
+	tier := strings.ToLower(strings.TrimSpace(raw))
+	switch tier {
+	case "team", "hobby":
+		return tier
+	default:
+		return defaultPreferredTier
+	}
 }
 
 func clampRetryAttempts(n int) int {
@@ -191,6 +203,18 @@ func (s *AppState) hobbyBlockedSettings() []string {
 	return append([]string(nil), s.HobbyBlocked...)
 }
 
+func (s *AppState) normalizeTierRoutingSettings() {
+	s.PreferredTier = normalizePreferredTier(s.PreferredTier)
+	s.TeamPriority = normalizeModelPatterns(s.TeamPriority, false)
+	s.HobbyPriority = normalizeModelPatterns(s.HobbyPriority, false)
+}
+
+func (s *AppState) tierRoutingSettings() (string, []string, []string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizePreferredTier(s.PreferredTier), append([]string(nil), s.TeamPriority...), append([]string(nil), s.HobbyPriority...)
+}
+
 func normalizeModelName(model string) string {
 	name := strings.ToLower(strings.TrimSpace(model))
 	if name == "" {
@@ -210,7 +234,27 @@ func isTeamTier(tier string) bool {
 	return strings.EqualFold(strings.TrimSpace(tier), "team")
 }
 
-func selectProxyCandidatePool(team, hobby []proxyCandidate, hobbyBlocked bool) []proxyCandidate {
+func modelMatchesAnyPattern(model string, patterns []string) bool {
+	return modelBlockedForHobby(model, patterns)
+}
+
+func preferredTierForModel(model, defaultTier string, teamPriority, hobbyPriority []string, hobbyBlocked bool) string {
+	if hobbyBlocked || modelMatchesAnyPattern(model, teamPriority) {
+		return "team"
+	}
+	if modelMatchesAnyPattern(model, hobbyPriority) {
+		return "hobby"
+	}
+	return normalizePreferredTier(defaultTier)
+}
+
+func selectProxyCandidatePool(team, hobby []proxyCandidate, preferredTier string, hobbyBlocked bool) []proxyCandidate {
+	if preferredTier == "hobby" && !hobbyBlocked {
+		if len(hobby) > 0 {
+			return hobby
+		}
+		return team
+	}
 	if len(team) > 0 {
 		return team
 	}
@@ -269,6 +313,7 @@ func (s *AppState) nextProxyCandidates(model string) []proxyCandidate {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hobbyBlocked := modelBlockedForHobby(model, s.HobbyBlocked)
+	preferredTier := preferredTierForModel(model, s.PreferredTier, s.TeamPriority, s.HobbyPriority, hobbyBlocked)
 	team := make([]proxyCandidate, 0, len(s.Keys))
 	hobby := make([]proxyCandidate, 0, len(s.Keys))
 	for _, k := range s.Keys {
@@ -284,7 +329,7 @@ func (s *AppState) nextProxyCandidates(model string) []proxyCandidate {
 			hobby = append(hobby, c)
 		}
 	}
-	list := selectProxyCandidatePool(team, hobby, hobbyBlocked)
+	list := selectProxyCandidatePool(team, hobby, preferredTier, hobbyBlocked)
 	if len(list) == 0 {
 		return list
 	}
