@@ -1,30 +1,100 @@
-# Copy this file to config.txt and fill in WEB_AUTH_TOKEN before starting.
+# config.example.txt
+# 复制为 config.txt 后再启动。
+# 首次启动至少要把 WEB_AUTH_TOKEN 改成自己的登录密钥。
+#
+# 说明：
+# - 每行格式为 KEY=VALUE；不要在 VALUE 后面追加行内注释。
+# - config.txt 主要作为首次启动/兜底种子。
+# - Web「配置」页保存后会写入 data/config.json，除 LISTEN_ADDR 外通常会立即生效。
 
-# Listen address:
-#   :9090          Listen on all interfaces.
-#   127.0.0.1:9090 Listen only on localhost.
+# =============================================================================
+# 1. 服务监听
+# =============================================================================
+
+# 监听地址：
+#   :9090            全网卡监听 9090，公网/局域网都可访问
+#   127.0.0.1:9090   只允许本机访问
+#   :8080            改用 8080 端口
+# 注意：修改监听地址后需要重启进程。
 LISTEN_ADDR=:9090
 
-# Required web UI login token.
+# 状态目录，保存 state.json 和运行时 config.json；一般不用改。
+STATE_DIR=data
+
+# =============================================================================
+# 2. 认证
+# =============================================================================
+
+# Web 管理界面访问密钥（登录页 + /api/* 接口）。
+# 必填；留空会启动失败。
 WEB_AUTH_TOKEN=change-me
 
-# Optional proxy API token. Leave empty, then generate or fill it in the web UI.
+# 代理 API 调用密钥（/v1/*、/aws/v1/*、/vertex/v1/*、/anthropic/v1/*）。
+# 可留空；留空时代理接口会拒绝请求，之后可在 Web「配置」页生成。
+# 客户端传法：Authorization: Bearer <token> 或 X-Api-Key: <token>
+# 多个 token 可用英文逗号或分号分隔。
 API_AUTH_TOKEN=
 
-# Monthly cooldown threshold in USD.
-MONTHLY_COOLDOWN_USD=5
+# =============================================================================
+# 3. 上游与渠道路由
+# =============================================================================
 
-# Monthly quota per key in USD, used for UI totals.
-MONTHLY_QUOTA_PER_KEY=5
+# Vercel AI Gateway 上游地址；一般不用改。
+GATEWAY_BASE_URL=https://ai-gateway.vercel.sh/v1
 
-# Optional default reasoning effort: minimal / low / medium / high / xhigh.
-DEFAULT_REASONING_EFFORT=
-
-# Optional upstream gateway URL.
-# GATEWAY_BASE_URL=https://ai-gateway.vercel.sh/v1
-
-# Optional provider order fallback, for example: bedrock or bedrock,anthropic.
+# 默认 provider 顺序，仅对裸 /v1 请求生效。
+# 带路径前缀的 /aws/v1、/vertex/v1、/anthropic/v1 会按路径锁定 provider。
+# 示例：
+#   bedrock
+#   bedrock,anthropic
+#   vertex,anthropic
+# 留空表示不注入 provider order。
 PROVIDER_ORDER=bedrock
 
-# Optional debug dump directory. Leave empty to disable.
+# =============================================================================
+# 4. 额度与冷却
+# =============================================================================
+
+# Key 月度消费达到该金额后自动进入冷却池，单位：美元。
+MONTHLY_COOLDOWN_USD=5
+
+# 单个账户月度额度，仅用于 Web 界面统计展示。
+# 常见值：Hobby=5，Pro=20，BYOK 按实际额度填写。
+MONTHLY_QUOTA_PER_KEY=5
+
+# =============================================================================
+# 5. 模型请求改写
+# =============================================================================
+
+# 默认 thinking/reasoning 强度。
+# 客户端未传 thinking/reasoning 时，代理会在支持的 /v1/chat/completions 请求中自动补入。
+# 可选值：minimal / low / medium / high / xhigh
+# 推荐留空：交给客户端设置，或用模型名 -thinking-* 后缀控制。
+DEFAULT_REASONING_EFFORT=
+
+# =============================================================================
+# 6. 调试
+# =============================================================================
+
+# 调试 dump 目录，留空表示关闭。
+# 开启后每个代理请求会写出请求、上游响应、下游响应和元信息；调试完记得关掉。
 DEBUG_DUMP_DIR=
+
+# =============================================================================
+# 7. 高级故障策略
+# =============================================================================
+
+# 状态码支持逗号/分号/空白分隔，也支持 5xx。
+
+# 代理返回这些状态码时，该 key 立即进入冷却池。
+COOLDOWN_STATUS_CODES=402
+
+# 代理返回这些状态码时累计失败次数；达到阈值后自动报废。
+PROXY_SCRAP_STATUS_CODES=401
+PROXY_SCRAP_FAIL_THRESHOLD=3
+
+# 刷新余额时返回这些状态码后自动报废。
+REFRESH_SCRAP_STATUS_CODES=401,403
+
+# 刷新余额时返回这些状态码后自动进入冷却池；留空表示关闭。
+REFRESH_COOLDOWN_STATUS_CODES=
