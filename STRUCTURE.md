@@ -89,8 +89,8 @@ Vercel 的渠道路由**不是**靠模型名前缀实现的。`vertex/claude-*` 
 
 **Reasoning / Thinking 注入**
 - `DEFAULT_REASONING_EFFORT` 可选值：`minimal` / `low` / `medium` / `high` / `xhigh`。
-- `/v1/chat/completions` 注入 `reasoning: {enabled:true, effort:"..."}`。
-- `/v1/messages` 注入 `providerOptions.anthropic.thinking: {type:"enabled", budgetTokens:...}`，并删除 `temperature` / `top_p` / `top_k`。
+- OpenAI 兼容接口 `/v1/chat/completions` 注入 `reasoning: {enabled:true, effort:"..."}`。
+- Anthropic 接口 `/v1/messages` 注入 `providerOptions.anthropic.thinking: {type:"enabled", budgetTokens:...}`，并删除 `temperature` / `top_p` / `top_k`。
 - `/v1/messages` 预算映射：`minimal=1024`、`low=2048`、`medium=4000`、`high=8000`、`xhigh=16000`。
 - 模型名后缀可覆盖默认值，例如 `gpt-5.5-xhigh`、`claude-opus-4.6-high`、`gemini-3-pro-medium`。旧后缀 `-thinking-low/-thinking-mid/-thinking-high/-thinking-max` 保持兼容。
 
