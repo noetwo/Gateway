@@ -230,6 +230,7 @@ func handleConfig(rtCfg *RuntimeConfig, state *AppState) http.HandlerFunc {
 		ApiAuthTokens              []string `json:"api_auth_tokens"`
 		DefaultReasoning           string   `json:"default_reasoning_effort"`
 		DebugDumpDir               string   `json:"debug_dump_dir"`
+		DebugEnabled               *bool    `json:"debug_enabled"`
 		PassthroughOnly            bool     `json:"passthrough_only"`
 		MonthlyQuotaPerKey         float64  `json:"monthly_quota_per_key"`
 		ProviderOrder              string   `json:"provider_order"`
@@ -248,6 +249,7 @@ func handleConfig(rtCfg *RuntimeConfig, state *AppState) http.HandlerFunc {
 			"api_auth_tokens":               cfg.ApiAuthTokens,
 			"default_reasoning_effort":      cfg.DefaultReasoning,
 			"debug_dump_dir":                cfg.DebugDumpDir,
+			"debug_enabled":                 cfg.DebugEnabled,
 			"passthrough_only":              cfg.PassthroughOnly,
 			"monthly_quota_per_key":         cfg.MonthlyQuotaPerKey,
 			"provider_order":                cfg.ProviderOrder,
@@ -281,7 +283,10 @@ func handleConfig(rtCfg *RuntimeConfig, state *AppState) http.HandlerFunc {
 			cfg.WebAuthToken = strings.TrimSpace(req.WebAuthToken)
 			cfg.ApiAuthTokens = cleanTokens(req.ApiAuthTokens)
 			cfg.DefaultReasoning = strings.TrimSpace(req.DefaultReasoning)
-			cfg.DebugDumpDir = strings.TrimSpace(req.DebugDumpDir)
+			cfg.DebugDumpDir = fixedDebugDir()
+			if req.DebugEnabled != nil {
+				cfg.DebugEnabled = *req.DebugEnabled
+			}
 			cfg.PassthroughOnly = req.PassthroughOnly
 			cfg.MonthlyQuotaPerKey = req.MonthlyQuotaPerKey
 			cfg.ProviderOrder = strings.TrimSpace(req.ProviderOrder)
@@ -1000,7 +1005,7 @@ func handleLogs(ring *ProxyLogRing) http.HandlerFunc {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
-		n := 100
+		n := 200
 		if qs := r.URL.Query().Get("n"); qs != "" {
 			if v, err := strconv.Atoi(qs); err == nil && v > 0 {
 				n = v

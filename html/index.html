@@ -68,6 +68,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#6b7872;box-sh
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .filterbar{display:grid;grid-template-columns:minmax(160px,1fr) 140px 160px auto;gap:8px;align-items:center;margin-bottom:12px}
 .log-filterbar{display:grid;grid-template-columns:minmax(160px,1fr) 120px auto;gap:8px;align-items:center;margin-bottom:10px}
+.debug-filterbar{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:8px;align-items:center;margin-bottom:10px}
 .settings-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
 .settings-box{border:1px solid var(--border-soft);border-radius:10px;padding:14px;background:#fafbfa}
 .settings-box h3{margin:0 0 12px;font-size:14px}
@@ -107,13 +108,13 @@ tr:last-child td{border-bottom:none}
 .tab[data-tab=active].active{border-bottom-color:var(--green)}
 .tab[data-tab=cooldown].active{border-bottom-color:var(--amber)}
 .tab[data-tab=scrap].active{border-bottom-color:#888}
-.tab[data-tab=logs].active{border-bottom-color:var(--text)}
+.tab[data-tab=logs].active,.tab[data-tab=debug].active{border-bottom-color:var(--text)}
 .tab[data-tab=settings].active,.tab[data-tab=config].active{border-bottom-color:#6b7872}
 .tab-count{background:var(--grey);color:var(--muted);padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;transition:background .15s,color .15s}
 .tab[data-tab=active].active .tab-count{background:var(--green-soft);color:var(--green)}
 .tab[data-tab=cooldown].active .tab-count{background:var(--amber-soft);color:var(--amber)}
 .tab[data-tab=scrap].active .tab-count{background:var(--red-soft);color:var(--red)}
-.tab[data-tab=logs].active .tab-count{background:var(--text);color:#fff}
+.tab[data-tab=logs].active .tab-count,.tab[data-tab=debug].active .tab-count{background:var(--text);color:#fff}
 .tab-panel{display:none}
 .tab-panel.active{display:block;animation:fadeUp .2s ease-out}
 .tab-hint{color:var(--muted);font-size:11px;margin-bottom:10px}
@@ -203,6 +204,9 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
 .logs-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:10px}
 .logs-wrap th{background:#fafbfa}
 .logs-wrap td{font-size:12px}
+.debug-wrap{max-height:460px;overflow:auto;border:1px solid var(--border);border-radius:10px}
+.debug-wrap th{background:#fafbfa}
+.debug-wrap td{font-size:12px}
 
 /* Sticky icon */
 .lock-ico{margin-right:5px;color:var(--amber)}
@@ -211,7 +215,7 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
 .muted{color:var(--muted);font-size:11px}
 .right{text-align:right}
 @media (max-width:760px){
-  .filterbar,.log-filterbar,.settings-grid{grid-template-columns:1fr}
+  .filterbar,.log-filterbar,.debug-filterbar,.settings-grid{grid-template-columns:1fr}
   .tabs{gap:12px;overflow:auto}
 }
 </style>
@@ -245,6 +249,7 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
       <button class="tab" data-tab="cooldown" onclick="switchTab('cooldown')">冷却 <span class="tab-count" id="tabCountCooldown">0</span></button>
       <button class="tab" data-tab="scrap" onclick="switchTab('scrap')">报废 <span class="tab-count" id="tabCountScrap">0</span></button>
       <button class="tab" data-tab="logs" onclick="switchTab('logs')">日志 <span class="tab-count" id="tabCountLogs">0</span></button>
+      <button class="tab" data-tab="debug" onclick="switchTab('debug')">Debug <span class="tab-count" id="tabCountDebug">0</span></button>
       <button class="tab" data-tab="settings" onclick="switchTab('settings')">设置</button>
       <button class="tab" data-tab="config" onclick="switchTab('config')">配置</button>
     </div>
@@ -320,7 +325,7 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
 
     <div id="panel-logs" class="tab-panel">
       <div class="log-filterbar">
-        <input id="logFilterText" placeholder="筛选模型 / Key / 错误" oninput="renderLogs()"/>
+        <input id="logFilterText" placeholder="筛选接口 / 模型 / Key / token / 错误" oninput="renderLogs()"/>
         <select id="logFilterStatus" onchange="renderLogs()">
           <option value="">全部状态</option>
           <option value="success">成功</option>
@@ -331,8 +336,24 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
       </div>
       <div class="logs-wrap">
         <table>
-          <thead><tr><th>时间</th><th>模型</th><th>Key</th><th>状态</th><th>耗时</th><th>切换</th><th>错误</th></tr></thead>
+          <thead><tr><th>时间</th><th>接口</th><th>模型</th><th>Key</th><th>状态</th><th>Tokens</th><th>耗时</th><th>切换</th><th>错误</th></tr></thead>
           <tbody id="logbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="panel-debug" class="tab-panel">
+      <div class="debug-filterbar">
+        <input id="debugFilterText" placeholder="筛选文件名 / 请求 ID / 内容关键字" oninput="loadDebugDebounced()"/>
+        <label style="display:flex;align-items:center;gap:6px;white-space:nowrap"><input id="debugEnabled" type="checkbox" style="width:auto;height:auto" onchange="saveDebugSettings()"/>启用 Dump</label>
+        <button class="icon-btn" onclick="loadDebug()">刷新 Debug</button>
+        <button class="icon-btn red" onclick="clearDebug()">清空 Debug</button>
+      </div>
+      <div class="tab-hint">状态：<span id="debugState">-</span> · 目录：<code id="debugDir">debug</code></div>
+      <div class="debug-wrap">
+        <table>
+          <thead><tr><th>文件</th><th>类型</th><th>请求 ID</th><th>大小</th><th>修改时间</th><th class="right">操作</th></tr></thead>
+          <tbody id="debugBody"></tbody>
         </table>
       </div>
     </div>
@@ -406,7 +427,6 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
         <div class="settings-box">
           <h3>运行参数</h3>
           <div class="form-row"><label>监听地址，保存后需重启生效</label><input id="cfgListenAddr" placeholder="127.0.0.1:9090"/></div>
-          <div class="form-row"><label>Debug Dump 目录</label><input id="cfgDebugDumpDir" placeholder="留空关闭"/></div>
           <div class="form-row"><label><input id="cfgPassthroughOnly" type="checkbox" style="width:auto;height:auto;margin-right:6px"/>Passthrough Only</label></div>
           <button class="primary" onclick="saveConfig()">保存配置</button>
         </div>
@@ -479,6 +499,7 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
 const fmt=n=>Number(n||0).toFixed(2);
 const dt=s=>{if(!s)return '-';if(typeof s==='string'&&s.startsWith('0001-01-01'))return '-';return new Date(s).toLocaleString();};
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function jsArg(s){return JSON.stringify(String(s||''));}
 function truncate(s,n){return (s=String(s||'')).length>n?s.slice(0,n)+'...':s;}
 
 // ---------- toast ----------
@@ -549,6 +570,9 @@ const _page={active:1,cooldown:1,scrap:1};
 let _pageSize=20;
 let _logsLoaded=false;
 let _logCache=[];
+let _debugCache=[];
+let _debugEnabled=false;
+let _debugSearchTimer=null;
 const _poolFilters={
   active:{name:'',tier:'',reset:''},
   cooldown:{name:'',tier:'',reset:''},
@@ -740,7 +764,6 @@ async function loadConfig(){
     setValueIfIdle('cfgRefreshScrapCodes',cfg.refresh_scrap_status_codes||'401,403');
     setValueIfIdle('cfgRefreshCooldownCodes',cfg.refresh_cooldown_status_codes||'');
     setValueIfIdle('cfgListenAddr',cfg.listen_addr||'');
-    setValueIfIdle('cfgDebugDumpDir',cfg.debug_dump_dir||'');
     const pass=document.getElementById('cfgPassthroughOnly');
     if(pass&&document.activeElement!==pass)pass.checked=!!cfg.passthrough_only;
   }catch(e){toast(e.message,'error')}
@@ -761,7 +784,6 @@ async function saveConfig(){
       refresh_scrap_status_codes:document.getElementById('cfgRefreshScrapCodes').value.trim(),
       refresh_cooldown_status_codes:document.getElementById('cfgRefreshCooldownCodes').value.trim(),
       listen_addr:document.getElementById('cfgListenAddr').value.trim(),
-      debug_dump_dir:document.getElementById('cfgDebugDumpDir').value.trim(),
       passthrough_only:!!document.getElementById('cfgPassthroughOnly').checked,
     };
     const cfg=await api('/api/config',{method:'POST',body:JSON.stringify(payload)});
@@ -933,6 +955,7 @@ function switchTab(name){
     }
   });
   if(name==='logs')loadLogs();
+  if(name==='debug')loadDebug();
   if(name==='config')loadConfig();
 }
 
@@ -1140,21 +1163,135 @@ function renderLogs(){
       if(status==='failed'&&l.success)return false;
       if(status==='retried'&&!l.retried)return false;
       if(q){
-        const hay=[l.model,l.key_name,l.status_code,l.error,l.path].map(x=>String(x||'').toLowerCase()).join(' ');
+        const hay=[l.method,l.endpoint,l.interface,l.provider,l.model,l.key_name,l.key_id,l.status_code,l.error,l.path,l.input_tokens,l.output_tokens,l.total_tokens,l.usage_source,l.dump_id].map(x=>String(x||'').toLowerCase()).join(' ');
         if(!hay.includes(q))return false;
       }
       return true;
     });
     if(cnt)cnt.textContent=logs.length;
-    if(!logs.length){lb.innerHTML='<tr><td colspan="7" class="empty">暂无日志</td></tr>';return;}
+    if(!logs.length){lb.innerHTML='<tr><td colspan="9" class="empty">暂无日志</td></tr>';return;}
     lb.innerHTML=logs.map(l=>{
       const sc=l.success?`<span class="pill green">${l.status_code}</span>`:`<span class="pill red">${l.status_code||'×'}</span>`;
-      return `<tr><td style="white-space:nowrap">${dt(l.time)}</td><td style="font-family:Consolas,monospace">${esc(l.model||'-')}</td><td>${esc(l.key_name)}</td><td>${sc}</td><td>${l.elapsed_ms}ms</td><td>${l.retried?'<span class="pill amber">重试</span>':'-'}</td><td style="max-width:240px;word-break:break-word;color:var(--red)">${esc(l.error||'')}</td></tr>`;
+      const endpoint=esc((l.method?l.method+' ':'')+(l.endpoint||l.path||'-'));
+      const provider=[l.interface,l.provider].filter(Boolean).join(' · ');
+      const tokenTotal=l.total_tokens||((l.input_tokens||0)+(l.output_tokens||0));
+      const tokenCell=tokenTotal?`${tokenTotal}<div class="muted">in ${l.input_tokens||0} / out ${l.output_tokens||0}${l.usage_source?' · '+esc(l.usage_source):''}</div>`:'-';
+      const debugBtn=l.dump_id?`<button class="icon-btn" onclick="filterDebugBy(${jsArg(l.dump_id)})">Debug</button>`:'';
+      return `<tr>
+        <td style="white-space:nowrap">${dt(l.time)}</td>
+        <td style="font-family:Consolas,monospace;max-width:220px;word-break:break-word">${endpoint}<div class="muted">${esc(provider||'-')}${l.stream?' · stream':''}</div></td>
+        <td style="font-family:Consolas,monospace">${esc(l.model||'-')}</td>
+        <td>${esc(l.key_name||l.key_id||'-')}</td>
+        <td>${sc}</td>
+        <td>${tokenCell}</td>
+        <td>${l.elapsed_ms}ms</td>
+        <td>${l.retried?'<span class="pill amber">重试</span>':'-'}</td>
+        <td style="max-width:260px;word-break:break-word;color:var(--red)">${esc(l.error||'')} ${debugBtn}</td>
+      </tr>`;
     }).join('');
 }
 
+// ---------- debug ----------
+function humanBytes(n){
+  n=Number(n||0);
+  if(n<1024)return n+' B';
+  if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
+  return (n/1024/1024).toFixed(1)+' MB';
+}
+function loadDebugDebounced(){
+  clearTimeout(_debugSearchTimer);
+  _debugSearchTimer=setTimeout(loadDebug,220);
+}
+async function loadDebugSettings(){
+  try{
+    const r=await api('/api/debug/settings');
+    _debugEnabled=!!r.enabled;
+    const cb=document.getElementById('debugEnabled');
+    if(cb&&document.activeElement!==cb)cb.checked=_debugEnabled;
+    const state=document.getElementById('debugState');
+    if(state)state.innerHTML=_debugEnabled?'<span class="pill green">已启用</span>':'<span class="pill grey">已关闭</span>';
+    const dir=document.getElementById('debugDir');
+    if(dir)dir.textContent=r.dir||'debug';
+  }catch(e){toast(e.message,'error')}
+}
+async function saveDebugSettings(){
+  try{
+    const enabled=!!document.getElementById('debugEnabled')?.checked;
+    const r=await api('/api/debug/settings',{method:'POST',body:JSON.stringify({enabled})});
+    _debugEnabled=!!r.enabled;
+    await loadDebugSettings();
+    toast(_debugEnabled?'Debug Dump 已启用':'Debug Dump 已关闭',_debugEnabled?'success':'warn');
+  }catch(e){toast(e.message,'error');await loadDebugSettings();}
+}
+async function loadDebug(){
+  try{
+    await loadDebugSettings();
+    const q=(document.getElementById('debugFilterText')?.value||'').trim();
+    const r=await api('/api/debug'+(q?'?q='+encodeURIComponent(q):''));
+    _debugCache=r.files||[];
+    const cnt=document.getElementById('tabCountDebug');
+    if(cnt)cnt.textContent=_debugCache.length;
+    const dir=document.getElementById('debugDir');
+    if(dir)dir.textContent=r.dir||'./debug';
+    renderDebug();
+  }catch(e){toast(e.message,'error')}
+}
+function renderDebug(){
+  const body=document.getElementById('debugBody');
+  if(!body)return;
+  if(!_debugCache.length){body.innerHTML='<tr><td colspan="6" class="empty">暂无 Debug 文件</td></tr>';return;}
+  body.innerHTML=_debugCache.map(f=>`<tr>
+    <td style="font-family:Consolas,monospace;word-break:break-all">${esc(f.name)}</td>
+    <td><span class="pill grey">${esc(f.kind||'file')}</span></td>
+    <td style="font-family:Consolas,monospace">${esc(f.request_id||'-')}</td>
+    <td>${humanBytes(f.size)}</td>
+    <td class="muted">${dt(f.modified)}</td>
+    <td class="right"><div class="actions">
+      <button class="icon-btn" onclick="viewDebug(${jsArg(f.name)})">查看</button>
+      <button class="icon-btn" onclick="downloadDebug(${jsArg(f.name)})">下载</button>
+      <button class="icon-btn red" onclick="deleteDebug(${jsArg(f.name)})">删除</button>
+    </div></td>
+  </tr>`).join('');
+}
+async function viewDebug(name){
+  try{
+    const r=await api('/api/debug/file?name='+encodeURIComponent(name));
+    infoModal(name,(r.content||'')+(r.truncated?'\n\n[内容超过 2MB，已截断]':''));
+  }catch(e){toast(e.message,'error')}
+}
+function downloadDebug(name){
+  const a=document.createElement('a');
+  a.href='/api/debug/file?download=1&name='+encodeURIComponent(name);
+  a.download=name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>a.remove(),0);
+}
+async function deleteDebug(name){
+  if(!await confirmModal('确定删除这个 Debug 文件？','删除 Debug','red'))return;
+  try{
+    await api('/api/debug/file?name='+encodeURIComponent(name),{method:'DELETE'});
+    await loadDebug();
+    toast('Debug 文件已删除','success');
+  }catch(e){toast(e.message,'error')}
+}
+async function clearDebug(){
+  if(!await confirmModal('确定清空 ./debug 目录？','清空 Debug','red'))return;
+  try{
+    const r=await api('/api/debug',{method:'DELETE'});
+    await loadDebug();
+    toast(`已删除 ${r.deleted||0} 个 Debug 文件`,'success');
+  }catch(e){toast(e.message,'error')}
+}
+function filterDebugBy(requestID){
+  switchTab('debug');
+  const input=document.getElementById('debugFilterText');
+  if(input)input.value=requestID||'';
+  loadDebug();
+}
+
 // init
-loadState();loadLogs();loadConfig();
+loadState();loadLogs();loadDebug();loadConfig();
 setInterval(loadState,30000);
 </script>
 </body>

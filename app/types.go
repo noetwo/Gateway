@@ -12,6 +12,7 @@ const (
 	defaultStateDirName      = "data"
 	defaultStateFile         = "state.json"
 	defaultRuntimeConfigFile = "config.json"
+	defaultDebugDirName      = "debug"
 	defaultConfigFile        = "config.txt"
 	defaultRetryStatusCodes  = "400,401,402,403,429,5xx"
 	defaultHobbyBlocked      = "anthropic/claude-opus-4.5,anthropic/claude-opus-4.6,anthropic/claude-opus-4.7"
@@ -117,6 +118,7 @@ type Config struct {
 	ApiAuthTokens              []string
 	DefaultReasoning           string
 	DebugDumpDir               string
+	DebugEnabled               bool
 	PassthroughOnly            bool
 	MonthlyQuotaPerKey         float64
 	ProviderOrder              string
@@ -134,16 +136,33 @@ type proxyCandidate struct {
 }
 
 type ProxyLog struct {
-	Time       time.Time `json:"time"`
-	Model      string    `json:"model"`
-	KeyName    string    `json:"key_name"`
-	KeyID      string    `json:"key_id"`
-	StatusCode int       `json:"status_code"`
-	ElapsedMs  int64     `json:"elapsed_ms"`
-	Success    bool      `json:"success"`
-	Retried    bool      `json:"retried"`
-	Error      string    `json:"error,omitempty"`
-	Path       string    `json:"path"`
+	Time         time.Time `json:"time"`
+	Model        string    `json:"model"`
+	KeyName      string    `json:"key_name"`
+	KeyID        string    `json:"key_id"`
+	StatusCode   int       `json:"status_code"`
+	ElapsedMs    int64     `json:"elapsed_ms"`
+	Success      bool      `json:"success"`
+	Retried      bool      `json:"retried"`
+	Error        string    `json:"error,omitempty"`
+	Path         string    `json:"path"`
+	Method       string    `json:"method,omitempty"`
+	Endpoint     string    `json:"endpoint,omitempty"`
+	Interface    string    `json:"interface,omitempty"`
+	Provider     string    `json:"provider,omitempty"`
+	Stream       bool      `json:"stream,omitempty"`
+	InputTokens  int       `json:"input_tokens,omitempty"`
+	OutputTokens int       `json:"output_tokens,omitempty"`
+	TotalTokens  int       `json:"total_tokens,omitempty"`
+	UsageSource  string    `json:"usage_source,omitempty"`
+	DumpID       string    `json:"dump_id,omitempty"`
+}
+
+type TokenUsage struct {
+	InputTokens  int    `json:"input_tokens,omitempty"`
+	OutputTokens int    `json:"output_tokens,omitempty"`
+	TotalTokens  int    `json:"total_tokens,omitempty"`
+	Source       string `json:"usage_source,omitempty"`
 }
 
 type ProxyLogRing struct {

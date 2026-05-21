@@ -27,6 +27,7 @@ type runtimeConfigFile struct {
 	ApiAuthTokens              []string  `json:"api_auth_tokens"`
 	DefaultReasoning           string    `json:"default_reasoning_effort"`
 	DebugDumpDir               string    `json:"debug_dump_dir"`
+	DebugEnabled               bool      `json:"debug_enabled"`
 	PassthroughOnly            bool      `json:"passthrough_only"`
 	MonthlyQuotaPerKey         float64   `json:"monthly_quota_per_key"`
 	ProviderOrder              string    `json:"provider_order"`
@@ -53,7 +54,7 @@ func readConfig() Config {
 		apiAuthToken = apiAuthTokens[0]
 	}
 	defaultReasoning := strings.ToLower(strings.TrimSpace(os.Getenv("DEFAULT_REASONING_EFFORT")))
-	debugDumpDir := strings.TrimSpace(os.Getenv("DEBUG_DUMP_DIR"))
+	debugDumpDir := fixedDebugDir()
 	passthrough := strings.ToLower(strings.TrimSpace(os.Getenv("PASSTHROUGH_ONLY"))) == "true"
 	providerOrder := strings.ToLower(strings.TrimSpace(os.Getenv("PROVIDER_ORDER")))
 	monthlyQuota, err := strconv.ParseFloat(getenvDefault("MONTHLY_QUOTA_PER_KEY", "5"), 64)
@@ -71,6 +72,7 @@ func readConfig() Config {
 		ApiAuthTokens:              apiAuthTokens,
 		DefaultReasoning:           defaultReasoning,
 		DebugDumpDir:               debugDumpDir,
+		DebugEnabled:               strings.EqualFold(strings.TrimSpace(os.Getenv("DEBUG_ENABLED")), "true"),
 		PassthroughOnly:            passthrough,
 		MonthlyQuotaPerKey:         monthlyQuota,
 		ProviderOrder:              providerOrder,
@@ -123,7 +125,8 @@ func loadRuntimeConfig(seed Config) (*RuntimeConfig, error) {
 		}
 	}
 	cfg.DefaultReasoning = strings.ToLower(strings.TrimSpace(disk.DefaultReasoning))
-	cfg.DebugDumpDir = strings.TrimSpace(disk.DebugDumpDir)
+	cfg.DebugDumpDir = fixedDebugDir()
+	cfg.DebugEnabled = disk.DebugEnabled
 	cfg.PassthroughOnly = disk.PassthroughOnly
 	if disk.MonthlyQuotaPerKey > 0 {
 		cfg.MonthlyQuotaPerKey = disk.MonthlyQuotaPerKey
@@ -167,6 +170,7 @@ func normalizeConfig(cfg Config) Config {
 		cfg.ApiAuthToken = cfg.ApiAuthTokens[0]
 	}
 	cfg.DefaultReasoning = strings.ToLower(strings.TrimSpace(cfg.DefaultReasoning))
+	cfg.DebugDumpDir = fixedDebugDir()
 	cfg.ProviderOrder = strings.ToLower(strings.TrimSpace(cfg.ProviderOrder))
 	cfg.CooldownStatusCodes = normalizeStatusCodesOrDefault(cfg.CooldownStatusCodes, defaultCooldownCodes)
 	cfg.ProxyScrapStatusCodes = normalizeStatusCodesOrDefault(cfg.ProxyScrapStatusCodes, defaultProxyScrapCodes)
@@ -211,6 +215,7 @@ func (rt *RuntimeConfig) saveLocked() error {
 		ApiAuthTokens:              append([]string(nil), cfg.ApiAuthTokens...),
 		DefaultReasoning:           cfg.DefaultReasoning,
 		DebugDumpDir:               cfg.DebugDumpDir,
+		DebugEnabled:               cfg.DebugEnabled,
 		PassthroughOnly:            cfg.PassthroughOnly,
 		MonthlyQuotaPerKey:         cfg.MonthlyQuotaPerKey,
 		ProviderOrder:              cfg.ProviderOrder,

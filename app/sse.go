@@ -129,7 +129,7 @@ func getFloat(m map[string]any, key string) float64 {
 
 // processAnthropicSSE 解析 Anthropic 流，注入 input_tokens、累计 output_tokens 估算、
 // 每隔若干 chunk 插入合成 message_delta（防客户端断连后下游拿不到 usage）
-func processAnthropicSSE(w http.ResponseWriter, src io.Reader, ctx context.Context, inputEst int) error {
+func processAnthropicSSE(w http.ResponseWriter, src io.Reader, ctx context.Context, inputEst int, usageStats *TokenUsage) error {
 	flusher, _ := w.(http.Flusher)
 	reader := bufio.NewReaderSize(src, 64*1024)
 
@@ -142,6 +142,10 @@ func processAnthropicSSE(w http.ResponseWriter, src io.Reader, ctx context.Conte
 		gotStart     bool
 		stopped      bool
 	)
+	if usageStats == nil {
+		usageStats = &TokenUsage{}
+	}
+	defer func() { usageStats.finish(inputEst, outputAccum) }()
 
 	emit := func(event, data string) error {
 		var b strings.Builder
@@ -171,6 +175,7 @@ func processAnthropicSSE(w http.ResponseWriter, src io.Reader, ctx context.Conte
 			"input_tokens":  inputEst,
 			"output_tokens": outputAccum,
 		}
+		usageStats.noteEstimated(inputEst, outputAccum)
 		obj := map[string]any{
 			"type":  "message_delta",
 			"delta": delta,
@@ -198,10 +203,15 @@ func processAnthropicSSE(w http.ResponseWriter, src io.Reader, ctx context.Conte
 				if usage == nil {
 					usage = map[string]any{}
 				}
-				if it := getFloat(usage, "input_tokens"); it == 0 && inputEst > 0 {
+				if it := getFloat(usage, "input_tokens"); it > 0 {
+					usageStats.noteActual(int(it), 0, 0)
+				} else if inputEst > 0 {
 					usage["input_tokens"] = inputEst
+					usageStats.noteEstimated(inputEst, 0)
 				}
-				if _, ok := usage["output_tokens"]; !ok {
+				if ot := getFloat(usage, "output_tokens"); ot > 0 {
+					usageStats.noteActual(0, int(ot), 0)
+				} else if _, ok := usage["output_tokens"]; !ok {
 					usage["output_tokens"] = 0
 				}
 				msg["usage"] = usage
@@ -222,10 +232,12 @@ func processAnthropicSSE(w http.ResponseWriter, src io.Reader, ctx context.Conte
 			if usage, ok := obj["usage"].(map[string]any); ok {
 				if it := getFloat(usage, "input_tokens"); it > 0 {
 					sawRealUsage = true
+					usageStats.noteActual(int(it), 0, 0)
 				}
 				if ot := getFloat(usage, "output_tokens"); ot > 0 {
 					outputAccum = int(ot)
 					sawRealUsage = true
+					usageStats.noteActual(0, int(ot), 0)
 				}
 			}
 
@@ -307,7 +319,7 @@ func processAnthropicSSE(w http.ResponseWriter, src io.Reader, ctx context.Conte
 
 // processOpenAISSE 解析 OpenAI 兼容流，累计 output_tokens 估算，
 // 每隔若干 chunk 注入带 usage 的 chunk，断连时补发 final
-func processOpenAISSE(w http.ResponseWriter, src io.Reader, ctx context.Context, inputEst int) error {
+func processOpenAISSE(w http.ResponseWriter, src io.Reader, ctx context.Context, inputEst int, usageStats *TokenUsage) error {
 	flusher, _ := w.(http.Flusher)
 	reader := bufio.NewReaderSize(src, 64*1024)
 
@@ -320,6 +332,10 @@ func processOpenAISSE(w http.ResponseWriter, src io.Reader, ctx context.Context,
 		lastCreated  any
 		sawDone      bool
 	)
+	if usageStats == nil {
+		usageStats = &TokenUsage{}
+	}
+	defer func() { usageStats.finish(inputEst, outputAccum) }()
 
 	emitLine := func(s string) error {
 		if _, err := w.Write([]byte(s)); err != nil {
@@ -353,6 +369,7 @@ func processOpenAISSE(w http.ResponseWriter, src io.Reader, ctx context.Context,
 				},
 			}
 		}
+		usageStats.noteEstimated(inputEst, outputAccum)
 		if b, err := json.Marshal(obj); err == nil {
 			_ = emitLine("data: " + string(b) + "\n\n")
 		}
@@ -398,9 +415,15 @@ func processOpenAISSE(w http.ResponseWriter, src io.Reader, ctx context.Context,
 			}
 		}
 		if usage, ok := obj["usage"].(map[string]any); ok && usage != nil {
-			if ct := getFloat(usage, "completion_tokens"); ct > 0 {
+			pt := intField(usage, "prompt_tokens")
+			ct := intField(usage, "completion_tokens")
+			tt := intField(usage, "total_tokens")
+			if pt > 0 || ct > 0 || tt > 0 {
 				sawRealUsage = true
-				outputAccum = int(ct)
+				if ct > 0 {
+					outputAccum = ct
+				}
+				usageStats.noteActual(pt, ct, tt)
 			}
 		}
 		chunkCount++

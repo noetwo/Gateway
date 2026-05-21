@@ -81,10 +81,16 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 		isAnthropicPath := strings.Contains(logicalPath, "/messages")
 		isOpenAIPath := strings.Contains(logicalPath, "chat/completions")
 
-		dump := newDumpSession(cfg.DebugDumpDir, r, body, inputEst)
+		dumpDir := ""
+		if cfg.DebugEnabled {
+			dumpDir = cfg.DebugDumpDir
+		}
+		dump := newDumpSession(dumpDir, r, body, inputEst)
+		defer dump.finalize(0, r.Context().Err() != nil, nil)
 
 		cands := state.nextProxyCandidates(reqModel)
 		if len(cands) == 0 {
+			dump.finalize(http.StatusServiceUnavailable, r.Context().Err() != nil, nil)
 			if modelBlockedForHobby(reqModel, state.hobbyBlockedSettings()) {
 				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no non-hobby active key available for " + reqModel})
 				return
@@ -105,6 +111,32 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 			}
 			return id
 		}
+		interfaceName := proxyInterfaceName(r.URL.Path, channelProvider)
+		addProxyLog := func(c proxyCandidate, statusCode int, success bool, retried bool, errMsg string, usage TokenUsage) {
+			usage.finish(inputEst, 0)
+			proxyLogs.Add(ProxyLog{
+				Time:         time.Now(),
+				Model:        reqModel,
+				KeyName:      getKeyName(c.ID),
+				KeyID:        c.ID,
+				StatusCode:   statusCode,
+				ElapsedMs:    time.Since(reqStart).Milliseconds(),
+				Success:      success,
+				Retried:      retried,
+				Error:        errMsg,
+				Path:         r.URL.Path,
+				Method:       r.Method,
+				Endpoint:     logicalPath,
+				Interface:    interfaceName,
+				Provider:     providerForThisReq,
+				Stream:       wantStream,
+				InputTokens:  usage.InputTokens,
+				OutputTokens: usage.OutputTokens,
+				TotalTokens:  usage.TotalTokens,
+				UsageSource:  usage.Source,
+				DumpID:       dump.id,
+			})
+		}
 
 		var lastErr error
 		for i, c := range cands {
@@ -123,20 +155,12 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 			resp, err := client.Do(outReq)
 			if err != nil {
 				if r.Context().Err() != nil {
-					proxyLogs.Add(ProxyLog{
-						Time: time.Now(), Model: reqModel, KeyName: getKeyName(c.ID), KeyID: c.ID,
-						StatusCode: 0, ElapsedMs: time.Since(reqStart).Milliseconds(),
-						Success: false, Retried: i > 0, Error: "client_gone: " + err.Error(), Path: r.URL.Path,
-					})
+					addProxyLog(c, 0, false, i > 0, "client_gone: "+err.Error(), estimatedUsage(inputEst, 0))
 					return
 				}
 				state.markProxyFailure(c.ID, err.Error(), 0, cfg)
 				lastErr = err
-				proxyLogs.Add(ProxyLog{
-					Time: time.Now(), Model: reqModel, KeyName: getKeyName(c.ID), KeyID: c.ID,
-					StatusCode: 0, ElapsedMs: time.Since(reqStart).Milliseconds(),
-					Success: false, Retried: i > 0, Error: err.Error(), Path: r.URL.Path,
-				})
+				addProxyLog(c, 0, false, i > 0, err.Error(), estimatedUsage(inputEst, 0))
 				continue
 			}
 
@@ -146,11 +170,7 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 				errMsg := fmt.Sprintf("upstream status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(preview)))
 				state.markProxyFailure(c.ID, errMsg, resp.StatusCode, cfg)
 				lastErr = errors.New(errMsg)
-				proxyLogs.Add(ProxyLog{
-					Time: time.Now(), Model: reqModel, KeyName: getKeyName(c.ID), KeyID: c.ID,
-					StatusCode: resp.StatusCode, ElapsedMs: time.Since(reqStart).Milliseconds(),
-					Success: false, Retried: i > 0, Error: truncate(errMsg, 200), Path: r.URL.Path,
-				})
+				addProxyLog(c, resp.StatusCode, false, i > 0, truncate(errMsg, 200), estimatedUsage(inputEst, 0))
 				if i < len(cands)-1 {
 					continue
 				}
@@ -170,16 +190,19 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 
 			w.WriteHeader(resp.StatusCode)
 			var copyErr error
+			usage := estimatedUsage(inputEst, 0)
 			respIsSSE := wantStream && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "event-stream")
 			respBody := dump.wrapUpstream(resp.Body)
 			respWriter := dump.wrapDownstream(w)
+			captureWriter := newCaptureResponseWriter(respWriter, maxDebugViewBytes)
 			switch {
 			case respIsSSE && isAnthropicPath:
-				copyErr = processAnthropicSSE(respWriter, respBody, r.Context(), inputEst)
+				copyErr = processAnthropicSSE(captureWriter, respBody, r.Context(), inputEst, &usage)
 			case respIsSSE && isOpenAIPath:
-				copyErr = processOpenAISSE(respWriter, respBody, r.Context(), inputEst)
+				copyErr = processOpenAISSE(captureWriter, respBody, r.Context(), inputEst, &usage)
 			default:
-				copyErr = streamCopy(respWriter, respBody)
+				copyErr = streamCopy(captureWriter, respBody)
+				usage = extractUsageFromResponse(captureWriter.Bytes(), inputEst)
 			}
 			_ = resp.Body.Close()
 			dump.finalize(resp.StatusCode, r.Context().Err() != nil, copyErr)
@@ -189,37 +212,20 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 					if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 						state.markProxySuccess(c.ID)
 					}
-					proxyLogs.Add(ProxyLog{
-						Time: time.Now(), Model: reqModel, KeyName: getKeyName(c.ID), KeyID: c.ID,
-						StatusCode: resp.StatusCode, ElapsedMs: time.Since(reqStart).Milliseconds(),
-						Success: resp.StatusCode >= 200 && resp.StatusCode < 300, Retried: i > 0,
-						Error: "client_gone: " + copyErr.Error(), Path: r.URL.Path,
-					})
+					addProxyLog(c, resp.StatusCode, resp.StatusCode >= 200 && resp.StatusCode < 300, i > 0, "client_gone: "+copyErr.Error(), usage)
 					return
 				}
 				state.markProxyFailure(c.ID, copyErr.Error(), 0, cfg)
-				proxyLogs.Add(ProxyLog{
-					Time: time.Now(), Model: reqModel, KeyName: getKeyName(c.ID), KeyID: c.ID,
-					StatusCode: resp.StatusCode, ElapsedMs: time.Since(reqStart).Milliseconds(),
-					Success: false, Retried: i > 0, Error: "stream error: " + copyErr.Error(), Path: r.URL.Path,
-				})
+				addProxyLog(c, resp.StatusCode, false, i > 0, "stream error: "+copyErr.Error(), usage)
 				return
 			}
 
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				state.markProxySuccess(c.ID)
-				proxyLogs.Add(ProxyLog{
-					Time: time.Now(), Model: reqModel, KeyName: getKeyName(c.ID), KeyID: c.ID,
-					StatusCode: resp.StatusCode, ElapsedMs: time.Since(reqStart).Milliseconds(),
-					Success: true, Retried: i > 0, Path: r.URL.Path,
-				})
+				addProxyLog(c, resp.StatusCode, true, i > 0, "", usage)
 			} else {
 				state.markProxyFailure(c.ID, fmt.Sprintf("upstream status=%d", resp.StatusCode), resp.StatusCode, cfg)
-				proxyLogs.Add(ProxyLog{
-					Time: time.Now(), Model: reqModel, KeyName: getKeyName(c.ID), KeyID: c.ID,
-					StatusCode: resp.StatusCode, ElapsedMs: time.Since(reqStart).Milliseconds(),
-					Success: false, Retried: i > 0, Error: fmt.Sprintf("status %d", resp.StatusCode), Path: r.URL.Path,
-				})
+				addProxyLog(c, resp.StatusCode, false, i > 0, fmt.Sprintf("status %d", resp.StatusCode), usage)
 			}
 			return
 		}
@@ -233,6 +239,31 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 
 func shouldRetryWithNextKey(code int, retryCodes string) bool {
 	return retryStatusEnabled(code, retryCodes)
+}
+
+func proxyInterfaceName(path, channelProvider string) string {
+	switch {
+	case strings.HasPrefix(path, "/aws/v1"):
+		return "aws/bedrock"
+	case strings.HasPrefix(path, "/vertex/v1"):
+		return "vertex"
+	case strings.HasPrefix(path, "/anthropic/v1"):
+		return "anthropic"
+	case strings.HasPrefix(path, "/azure/v1"):
+		return "azure"
+	case strings.TrimSpace(channelProvider) != "":
+		return channelProvider
+	case strings.Contains(path, "/messages"):
+		return "anthropic-messages"
+	case strings.Contains(path, "/chat/completions"):
+		return "openai-chat"
+	case strings.Contains(path, "/responses"):
+		return "openai-responses"
+	case strings.Contains(path, "/images/"):
+		return "openai-images"
+	default:
+		return "openai-compatible"
+	}
 }
 
 func copyProxyHeaders(dst, src http.Header) {
@@ -298,6 +329,7 @@ type dumpSession struct {
 	downBytes int64
 	inputEst  int
 	enabled   bool
+	finalized bool
 }
 
 func newDumpSession(dir string, r *http.Request, body []byte, inputEst int) *dumpSession {
@@ -398,9 +430,10 @@ func (d *dumpSession) wrapDownstream(w http.ResponseWriter) http.ResponseWriter 
 }
 
 func (d *dumpSession) finalize(statusCode int, clientCancelled bool, copyErr error) {
-	if !d.enabled {
+	if !d.enabled || d.finalized {
 		return
 	}
+	d.finalized = true
 	if d.upstream != nil {
 		_ = d.upstream.Close()
 	}

@@ -100,7 +100,7 @@ Vercel 的渠道路由**不是**靠模型名前缀实现的。`vertex/claude-*` 
 - OpenAI 流：解析 delta 累计 completion_tokens；EOF / 断开时补发带 usage 的 chunk + `[DONE]`
 
 **Dump 调试**
-- `DEBUG_DUMP_DIR` 非空时，每个 /v1/* 请求落 5 个文件：`*_request_meta.json` `*_request_body.json` `*_upstream.txt`（Vercel 原始 SSE）`*_downstream.txt`（发给客户端的）`*_meta.json`（状态码/耗时/是否断开）
+- Debug 默认关闭，开启后目录固定为当前反代工作目录下的 `debug` 子目录。每个 /v1/* 请求落 5 个文件：`*_request_meta.json` `*_request_body.json` `*_upstream.txt`（Vercel 原始 SSE）`*_downstream.txt`（发给客户端的）`*_meta.json`（状态码/耗时/是否断开）。前端 Debug 页可开关、按文件名 / 请求 ID / 内容关键字筛选，并支持查看、下载、删除、清空。
 
 ## 路由表
 
@@ -113,6 +113,9 @@ Vercel 的渠道路由**不是**靠模型名前缀实现的。`vertex/claude-*` 
 | `/api/settings` | GET/POST | handleSettings（保存重试状态码、最大尝试次数、Hobby 不可用模型规则、key 等级优先级规则） |
 | `/api/retry-settings` | GET/POST | handleRetrySettings（兼容旧入口，实际复用 handleSettings） |
 | `/api/config` | GET/POST | handleConfig（保存运行配置到 `data/config.json`） |
+| `/api/debug` | GET/DELETE | handleDebugFiles（列出 / 清空 `./debug`，GET 支持 `q` 关键字） |
+| `/api/debug/settings` | GET/POST | handleDebugSettings（读取 / 保存 Debug Dump 开关） |
+| `/api/debug/file` | GET/DELETE | handleDebugFile（按 `name` 查看、下载或删除单个 debug 文件） |
 | `/api/export/keys` | GET | handleExportKeys（导出 `名称<Tab>等级<Tab>密钥`） |
 | `/api/refresh` | POST | handleRefresh（id 留空 → 并发刷新全部活跃 key，sem=10） |
 | `/api/sticky` | POST | handleStickyToggle |
@@ -150,11 +153,11 @@ Vercel 的渠道路由**不是**靠模型名前缀实现的。`vertex/claude-*` 
 
 **分页**：三池都做客户端分页（日志不需要，已是固定环形 200 条）。状态 `_page = {active:1, cooldown:1, scrap:1}` + 全局 `_pageSize`（默认 20，选项 10/20/50/100/全部）。`paginate(list, which)` 返回切片 + total + totalPages + current 并 clamp 越界 page。`pagerHtml(which, p)` 渲染首页/上一页/N/N/下一页/末页/每页选择器；总数为 0 时不渲染。`goPage(which, n)` 改完 `_page` 后 `rerenderPool(which)` 用 `_stateCache` 即时刷新，不重新拉接口。`setPageSize` 同时把三池都重置回第 1 页。
 
-**筛选**：三池都用表头按钮弹出筛选（WPS/表格风格），字段为名称、等级、距下次重置时间（24 小时内 / 7 天内 / 已到期）。日志页用 `_logCache` 缓存最近日志，支持按模型 / Key / 错误文本搜索，以及成功 / 失败 / 发生重试状态筛选。
+**筛选**：三池都用表头按钮弹出筛选（WPS/表格风格），字段为名称、等级、距下次重置时间（24 小时内 / 7 天内 / 已到期）。日志页用 `_logCache` 缓存最近日志，支持按接口 / provider / 模型 / Key / token / 错误文本搜索，以及成功 / 失败 / 发生重试状态筛选。Debug 页按文件名、请求 ID 和文件内容关键字筛选。
 
 **设置 Tab**：收纳重试状态码、最大尝试次数、Hobby 不可用模型规则、默认 key 等级优先级、模型级 team/hobby 优先规则。模型规则每行一个模型或前缀，保存到 `state.json` 的 `hobby_blocked_models` / `team_priority_models` / `hobby_priority_models`；默认优先等级保存到 `preferred_tier`。
 
-**配置 Tab**：收纳运行配置，保存到 `data/config.json`：Web 登录密码、多 API 调用密钥（支持随机生成 `sk-` + 48 位字母数字）、默认渠道 `provider_order`、默认 reasoning、Gateway 地址、月度冷却阈值、单 Key 月额度、代理/刷新冷却和报废策略、debug dump、passthrough、监听地址。除监听地址需要重启外，其余保存后按新配置即时生效。
+**配置 Tab**：收纳运行配置，保存到 `data/config.json`：Web 登录密码、多 API 调用密钥（支持随机生成 `sk-` + 48 位字母数字）、默认渠道 `provider_order`、默认 reasoning、Gateway 地址、月度冷却阈值、单 Key 月额度、代理/刷新冷却和报废策略、passthrough、监听地址。Debug dump 从配置页移到 Debug 页管理。除监听地址需要重启外，其余保存后按新配置即时生效。
 
 **交互组件**（一律是函数+全局状态，不引框架）：
 - `toast(msg, type='info'|'success'|'warn'|'error', ms=2800)` — 右上角，自动消失
