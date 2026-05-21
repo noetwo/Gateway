@@ -1,7 +1,6 @@
 # Local runtime configuration and state.
 config.txt
 data/
-STRUCTURE.md
 
 # Build outputs.
 *.exe
