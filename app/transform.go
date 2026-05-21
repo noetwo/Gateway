@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// injectProviderOrder 处理路径前缀指定的渠道（vertex/bedrock/anthropic）。
+// injectProviderOrder 处理路径前缀指定的渠道（vertex/bedrock/anthropic/azure）。
 //
 // Vercel 实际机制：模型 id 是规范的 `{namespace}/{name}`（anthropic/claude-*, google/gemini-*, openai/gpt-*），
 // 真正的渠道路由通过 body 的 `providerOptions.gateway.order` 数组传递。把模型名前缀写成 `vertex/claude-*`
@@ -48,14 +48,15 @@ func injectProviderOrder(body []byte, order string) []byte {
 		}
 	}
 
-	// 2. 仅对 anthropic / google namespace 的模型注入 providerOptions.gateway.order。
-	//    OpenAI 模型只有 openai 一家能服务，强加 vertex/bedrock 没意义；自定义/未知 namespace 也不动。
+	// 2. 仅对已知 namespace 的模型注入 providerOptions.gateway.order。
+	//    OpenAI namespace 只保留 azure/openai，避免把 GPT 强锁到 bedrock/anthropic/vertex。
 	modelStr, _ := req["model"].(string)
 	modelNS := ""
 	if idx := strings.Index(modelStr, "/"); idx > 0 {
 		modelNS = strings.ToLower(modelStr[:idx])
 	}
-	if modelNS != "anthropic" && modelNS != "google" {
+	providers = providersForModelNamespace(providers, modelNS)
+	if len(providers) == 0 {
 		out, err := json.Marshal(req)
 		if err != nil {
 			return body
@@ -84,6 +85,24 @@ func injectProviderOrder(body []byte, order string) []byte {
 		return body
 	}
 	return out
+}
+
+func providersForModelNamespace(providers []string, namespace string) []string {
+	switch namespace {
+	case "anthropic", "google":
+		return providers
+	case "openai":
+		out := make([]string, 0, len(providers))
+		for _, p := range providers {
+			switch strings.ToLower(p) {
+			case "azure", "openai":
+				out = append(out, p)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func canonicalNamespace(name string) string {
@@ -119,19 +138,19 @@ func transformReasoning(body []byte, defaultEffort, path string) []byte {
 	}
 
 	if _, hasThinking := req["thinking"]; hasThinking {
-		changed := false
-		if _, ok := req["temperature"]; ok {
-			delete(req, "temperature")
-			changed = true
+		changed := stripThinkingSamplingFields(req)
+		if !changed {
+			return body
 		}
-		if _, ok := req["top_p"]; ok {
-			delete(req, "top_p")
-			changed = true
+		out, err := json.Marshal(req)
+		if err != nil {
+			return body
 		}
-		if _, ok := req["top_k"]; ok {
-			delete(req, "top_k")
-			changed = true
-		}
+		return out
+	}
+
+	if strings.Contains(path, "/messages") && hasAnthropicProviderThinking(req) {
+		changed := stripThinkingSamplingFields(req)
 		if !changed {
 			return body
 		}
@@ -149,20 +168,8 @@ func transformReasoning(body []byte, defaultEffort, path string) []byte {
 	if re, ok := req["reasoning_effort"]; ok {
 		if effortStr, ok := re.(string); ok && strings.TrimSpace(effortStr) != "" {
 			if strings.Contains(path, "/messages") {
-				po, _ := req["providerOptions"].(map[string]any)
-				if po == nil {
-					po = map[string]any{}
-				}
-				po["anthropic"] = map[string]any{
-					"thinking": map[string]any{
-						"type":         "enabled",
-						"budgetTokens": effortToBudget(effortStr),
-					},
-				}
-				req["providerOptions"] = po
-				delete(req, "temperature")
-				delete(req, "top_p")
-				delete(req, "top_k")
+				injectAnthropicThinking(req, effortToBudget(effortStr))
+				stripThinkingSamplingFields(req)
 			} else {
 				req["reasoning"] = map[string]any{
 					"enabled": true,
@@ -178,12 +185,20 @@ func transformReasoning(body []byte, defaultEffort, path string) []byte {
 		}
 	}
 
-	if defaultEffort != "" && defaultEffort != "off" && defaultEffort != "none" && strings.Contains(path, "chat/completions") {
+	if defaultEffort != "" && defaultEffort != "off" && defaultEffort != "none" {
 		modelStr, _ := req["model"].(string)
 		if modelSupportsReasoning(modelStr) {
-			req["reasoning"] = map[string]any{
-				"enabled": true,
-				"effort":  defaultEffort,
+			switch {
+			case strings.Contains(path, "/messages"):
+				injectAnthropicThinking(req, effortToBudget(defaultEffort))
+				stripThinkingSamplingFields(req)
+			case strings.Contains(path, "chat/completions"):
+				req["reasoning"] = map[string]any{
+					"enabled": true,
+					"effort":  defaultEffort,
+				}
+			default:
+				return body
 			}
 			out, err := json.Marshal(req)
 			if err != nil {
@@ -194,6 +209,86 @@ func transformReasoning(body []byte, defaultEffort, path string) []byte {
 	}
 
 	return body
+}
+
+type thinkingTier struct {
+	suffix string
+	budget int
+	effort string
+}
+
+func thinkingSuffixTiers() []thinkingTier {
+	return []thinkingTier{
+		{"-thinking-minimal", 1024, "minimal"},
+		{"-thinking-medium", 4000, "medium"},
+		{"-thinking-xhigh", 16000, "xhigh"},
+		{"-thinking-high", 8000, "high"},
+		{"-thinking-mid", 4000, "medium"},
+		{"-thinking-max", 32000, "xhigh"},
+		{"-thinking-low", 2048, "low"},
+		{"-minimal", 1024, "minimal"},
+		{"-medium", 4000, "medium"},
+		{"-xhigh", 16000, "xhigh"},
+		{"-high", 8000, "high"},
+		{"-low", 2048, "low"},
+		{"-thinking", 8000, "high"},
+	}
+}
+
+func matchThinkingSuffix(model string) (thinkingTier, bool) {
+	var matched thinkingTier
+	found := false
+	for _, tier := range thinkingSuffixTiers() {
+		if strings.HasSuffix(model, tier.suffix) {
+			if !found || len(tier.suffix) > len(matched.suffix) {
+				matched = tier
+				found = true
+			}
+		}
+	}
+	return matched, found
+}
+
+func stripThinkingSuffix(model string) string {
+	if tier, ok := matchThinkingSuffix(model); ok {
+		return strings.TrimSuffix(model, tier.suffix)
+	}
+	return model
+}
+
+func injectAnthropicThinking(req map[string]any, budgetTokens int) {
+	po, _ := req["providerOptions"].(map[string]any)
+	if po == nil {
+		po = map[string]any{}
+	}
+	anthropic, _ := po["anthropic"].(map[string]any)
+	if anthropic == nil {
+		anthropic = map[string]any{}
+	}
+	anthropic["thinking"] = map[string]any{
+		"type":         "enabled",
+		"budgetTokens": budgetTokens,
+	}
+	po["anthropic"] = anthropic
+	req["providerOptions"] = po
+}
+
+func hasAnthropicProviderThinking(req map[string]any) bool {
+	po, _ := req["providerOptions"].(map[string]any)
+	anthropic, _ := po["anthropic"].(map[string]any)
+	_, ok := anthropic["thinking"]
+	return ok
+}
+
+func stripThinkingSamplingFields(req map[string]any) bool {
+	changed := false
+	for _, k := range []string{"temperature", "top_p", "top_k"} {
+		if _, ok := req[k]; ok {
+			delete(req, k)
+			changed = true
+		}
+	}
+	return changed
 }
 
 // rewriteThinkingSuffix 模型名是唯一权威:
@@ -209,51 +304,17 @@ func rewriteThinkingSuffix(body []byte, path string) []byte {
 		return body
 	}
 
-	type tier struct {
-		suffix string
-		budget int
-		effort string
-	}
-	tiers := []tier{
-		{"-thinking-high", 8000, "high"},
-		{"-thinking-mid", 4000, "medium"},
-		{"-thinking-max", 32000, "xhigh"},
-		{"-thinking-low", 2048, "low"},
-		{"-thinking", 8000, "high"},
-	}
-
-	var matched *tier
-	for i := range tiers {
-		if strings.HasSuffix(modelStr, tiers[i].suffix) {
-			if matched == nil || len(tiers[i].suffix) > len(matched.suffix) {
-				matched = &tiers[i]
-			}
-		}
-	}
-
 	changed := false
 
-	if matched != nil {
+	if matched, ok := matchThinkingSuffix(modelStr); ok {
 		req["model"] = strings.TrimSuffix(modelStr, matched.suffix)
 		delete(req, "reasoning_effort")
 		delete(req, "reasoning")
 		delete(req, "thinking")
 		switch {
 		case strings.Contains(path, "/messages"):
-			po, _ := req["providerOptions"].(map[string]any)
-			if po == nil {
-				po = map[string]any{}
-			}
-			po["anthropic"] = map[string]any{
-				"thinking": map[string]any{
-					"type":         "enabled",
-					"budgetTokens": matched.budget,
-				},
-			}
-			req["providerOptions"] = po
-			delete(req, "temperature")
-			delete(req, "top_p")
-			delete(req, "top_k")
+			injectAnthropicThinking(req, matched.budget)
+			stripThinkingSamplingFields(req)
 		case strings.Contains(path, "chat/completions"):
 			req["reasoning"] = map[string]any{
 				"enabled": true,

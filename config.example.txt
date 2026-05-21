@@ -29,7 +29,7 @@ STATE_DIR=data
 # 必填；留空会启动失败。
 WEB_AUTH_TOKEN=change-me
 
-# 代理 API 调用密钥（/v1/*、/aws/v1/*、/vertex/v1/*、/anthropic/v1/*）。
+# 代理 API 调用密钥（/v1/*、/aws/v1/*、/vertex/v1/*、/anthropic/v1/*、/azure/v1/*）。
 # 可留空；留空时代理接口会拒绝请求，之后可在 Web「配置」页生成。
 # 客户端传法：Authorization: Bearer <token> 或 X-Api-Key: <token>
 # 多个 token 可用英文逗号或分号分隔。
@@ -43,11 +43,12 @@ API_AUTH_TOKEN=
 GATEWAY_BASE_URL=https://ai-gateway.vercel.sh/v1
 
 # 默认 provider 顺序，仅对裸 /v1 请求生效。
-# 带路径前缀的 /aws/v1、/vertex/v1、/anthropic/v1 会按路径锁定 provider。
+# 带路径前缀的 /aws/v1、/vertex/v1、/anthropic/v1、/azure/v1 会按路径锁定 provider。
 # 示例：
 #   bedrock
 #   bedrock,anthropic
 #   vertex,anthropic
+#   azure,openai
 # 留空表示不注入 provider order。
 PROVIDER_ORDER=bedrock
 
@@ -67,9 +68,13 @@ MONTHLY_QUOTA_PER_KEY=5
 # =============================================================================
 
 # 默认 thinking/reasoning 强度。
-# 客户端未传 thinking/reasoning 时，代理会在支持的 /v1/chat/completions 请求中自动补入。
+# 客户端未传 thinking/reasoning 时，代理会在支持的 /v1/chat/completions 和 /v1/messages 请求中自动补入。
 # 可选值：minimal / low / medium / high / xhigh
-# 推荐留空：交给客户端设置，或用模型名 -thinking-* 后缀控制。
+# Claude /v1/messages 注入为：
+#   providerOptions.anthropic.thinking = {"type":"enabled","budgetTokens":预算}
+# 预算：minimal=1024, low=2048, medium=4000, high=8000, xhigh=16000
+# 推荐留空：交给客户端设置，或用模型名 -minimal/-low/-medium/-high/-xhigh 后缀控制。
+# 后缀示例：openai/gpt-5.5-xhigh、anthropic/claude-opus-4.6-high、google/gemini-3-pro-medium。
 DEFAULT_REASONING_EFFORT=
 
 # =============================================================================

@@ -380,8 +380,9 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
         </div>
         <div class="settings-box">
           <h3>默认渠道</h3>
-          <div class="form-row"><label>Provider Order</label><input id="cfgProviderOrder" placeholder="bedrock 或 bedrock,anthropic"/></div>
+          <div class="form-row"><label>Provider Order</label><input id="cfgProviderOrder" placeholder="bedrock、vertex,anthropic 或 azure,openai"/></div>
           <div class="form-row"><label>默认 Reasoning</label><input id="cfgDefaultReasoning" placeholder="minimal / low / medium / high / xhigh"/></div>
+          <div class="hint">/messages 会注入 providerOptions.anthropic.thinking。预算：minimal=1024、low=2048、medium=4000、high=8000、xhigh=16000。模型后缀示例：gpt-5.5-xhigh、claude-opus-4.6-high、gemini-3-pro-medium。</div>
           <div class="form-row"><label>Gateway Base URL</label><input id="cfgGatewayBase" placeholder="https://ai-gateway.vercel.sh/v1"/></div>
         </div>
         <div class="settings-box">

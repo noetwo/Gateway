@@ -25,7 +25,7 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 		}
 
 		reqStart := time.Now()
-		// 支持路径前缀：/aws/v1, /vertex/v1, /anthropic/v1 或裸 /v1
+		// 支持路径前缀：/aws/v1, /vertex/v1, /anthropic/v1, /azure/v1 或裸 /v1
 		logicalPath := r.URL.Path
 		switch {
 		case strings.HasPrefix(logicalPath, "/aws/v1"):
@@ -34,6 +34,8 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 			logicalPath = strings.TrimPrefix(logicalPath, "/vertex")
 		case strings.HasPrefix(logicalPath, "/anthropic/v1"):
 			logicalPath = strings.TrimPrefix(logicalPath, "/anthropic")
+		case strings.HasPrefix(logicalPath, "/azure/v1"):
+			logicalPath = strings.TrimPrefix(logicalPath, "/azure")
 		}
 		suffix := strings.TrimPrefix(logicalPath, "/v1")
 		targetURL := cfg.GatewayBaseURL + suffix
@@ -236,7 +238,7 @@ func shouldRetryWithNextKey(code int, retryCodes string) bool {
 func copyProxyHeaders(dst, src http.Header) {
 	for k, vals := range src {
 		kl := strings.ToLower(k)
-		if kl == "authorization" || kl == "x-api-key" || kl == "x-auth-token" || kl == "cookie" || kl == "host" || kl == "connection" || kl == "proxy-connection" || kl == "keep-alive" || kl == "transfer-encoding" || kl == "upgrade" || kl == "anthropic-beta" || kl == "x-anthropic-beta" {
+		if kl == "authorization" || kl == "x-api-key" || kl == "x-auth-token" || kl == "cookie" || kl == "host" || kl == "connection" || kl == "proxy-connection" || kl == "keep-alive" || kl == "transfer-encoding" || kl == "upgrade" {
 			continue
 		}
 		for _, v := range vals {

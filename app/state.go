@@ -220,10 +220,7 @@ func normalizeModelName(model string) string {
 	if name == "" {
 		return ""
 	}
-	for _, suffix := range []string{"-thinking-high", "-thinking-mid", "-thinking-max", "-thinking-low", "-thinking"} {
-		name = strings.TrimSuffix(name, suffix)
-	}
-	return name
+	return stripThinkingSuffix(name)
 }
 
 func isHobbyTier(tier string) bool {

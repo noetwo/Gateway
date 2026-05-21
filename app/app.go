@@ -28,7 +28,7 @@ func Run(loginHTML, indexHTML string) {
 	apiAuth := requireDynamicAuthFailClosed(func() []string { return rtCfg.Get().ApiAuthTokens })
 	log.Printf("auth enabled (web token length=%d, api tokens=%d)", len(cfg.WebAuthToken), len(cfg.ApiAuthTokens))
 	if cfg.DefaultReasoning != "" {
-		log.Printf("default reasoning effort = %s (auto-injected on /v1/chat/completions)", cfg.DefaultReasoning)
+		log.Printf("default reasoning effort = %s (auto-injected on /v1/chat/completions and /v1/messages)", cfg.DefaultReasoning)
 	}
 
 	proxyLogs := newProxyLogRing(200)
@@ -60,6 +60,8 @@ func Run(loginHTML, indexHTML string) {
 	mux.HandleFunc("/vertex/v1/", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "vertex"))))
 	mux.HandleFunc("/anthropic/v1", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "anthropic"))))
 	mux.HandleFunc("/anthropic/v1/", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "anthropic"))))
+	mux.HandleFunc("/azure/v1", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "azure"))))
+	mux.HandleFunc("/azure/v1/", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "azure"))))
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
