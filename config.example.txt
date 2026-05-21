@@ -72,9 +72,11 @@ MONTHLY_QUOTA_PER_KEY=5
 # 可选值：minimal / low / medium / high / xhigh
 # OpenAI 兼容 /v1/chat/completions 注入为：
 #   reasoning = {"enabled":true,"effort":"强度"}
-# Anthropic /v1/messages 注入为：
+# Anthropic /v1/messages 跑 GPT/OpenAI 模型时注入为：
+#   providerOptions.openai = {"reasoningEffort":"强度","reasoningSummary":"detailed"}
+# Anthropic /v1/messages 跑 Claude/Anthropic 模型时注入为：
 #   providerOptions.anthropic.thinking = {"type":"enabled","budgetTokens":预算}
-# /v1/messages 预算：minimal=1024, low=2048, medium=4000, high=8000, xhigh=16000
+# Claude thinking 预算：minimal=1024, low=2048, medium=4000, high=8000, xhigh=16000
 # 推荐留空：交给客户端设置，或用模型名 -minimal/-low/-medium/-high/-xhigh 后缀控制。
 # 后缀示例：openai/gpt-5.5-xhigh、anthropic/claude-opus-4.6-high、google/gemini-3-pro-medium。
 DEFAULT_REASONING_EFFORT=

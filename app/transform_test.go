@@ -37,12 +37,12 @@ func TestInjectProviderOrderSkipsUnsupportedOpenAIProviders(t *testing.T) {
 	}
 }
 
-func TestTransformReasoningAddsDefaultThinkingForMessages(t *testing.T) {
+func TestTransformReasoningAddsDefaultOpenAIReasoningForMessages(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.5","messages":[],"temperature":0.2,"top_p":1,"top_k":5,"providerOptions":{"gateway":{"order":["azure"]}}}`)
 
 	req := decodeTransformedBody(t, transformReasoning(body, "high", "/v1/messages"))
 
-	assertAnthropicThinking(t, req, 8000)
+	assertOpenAIReasoning(t, req, "high")
 	assertGatewayOrder(t, req, []string{"azure"})
 	assertMissingField(t, req, "temperature")
 	assertMissingField(t, req, "top_p")
@@ -50,8 +50,16 @@ func TestTransformReasoningAddsDefaultThinkingForMessages(t *testing.T) {
 	assertMissingField(t, req, "reasoning")
 }
 
+func TestTransformReasoningAddsDefaultAnthropicThinkingForMessages(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4.6","messages":[]}`)
+
+	req := decodeTransformedBody(t, transformReasoning(body, "high", "/v1/messages"))
+
+	assertAnthropicThinking(t, req, 8000)
+}
+
 func TestTransformReasoningDoesNotOverrideExistingMessagesThinking(t *testing.T) {
-	body := []byte(`{"model":"gpt-5.5","messages":[],"temperature":0.2,"providerOptions":{"anthropic":{"thinking":{"type":"enabled","budgetTokens":1234}}}}`)
+	body := []byte(`{"model":"claude-opus-4.6","messages":[],"temperature":0.2,"providerOptions":{"anthropic":{"thinking":{"type":"enabled","budgetTokens":1234}}}}`)
 
 	req := decodeTransformedBody(t, transformReasoning(body, "high", "/v1/messages"))
 
@@ -67,7 +75,7 @@ func TestRewriteThinkingSuffixAcceptsConfigStyleSuffixes(t *testing.T) {
 	if got := req["model"]; got != "openai/gpt-5.5" {
 		t.Fatalf("model = %v", got)
 	}
-	assertAnthropicThinking(t, req, 16000)
+	assertOpenAIReasoning(t, req, "xhigh")
 	assertMissingField(t, req, "temperature")
 }
 
@@ -147,6 +155,25 @@ func assertAnthropicThinking(t *testing.T, req map[string]any, wantBudget int) {
 	}
 	if int(gotBudget) != wantBudget {
 		t.Fatalf("thinking.budgetTokens = %v, want %d", gotBudget, wantBudget)
+	}
+}
+
+func assertOpenAIReasoning(t *testing.T, req map[string]any, wantEffort string) {
+	t.Helper()
+
+	po, ok := req["providerOptions"].(map[string]any)
+	if !ok {
+		t.Fatalf("providerOptions missing or wrong type: %#v", req["providerOptions"])
+	}
+	openai, ok := po["openai"].(map[string]any)
+	if !ok {
+		t.Fatalf("providerOptions.openai missing or wrong type: %#v", po["openai"])
+	}
+	if got := openai["reasoningEffort"]; got != wantEffort {
+		t.Fatalf("openai.reasoningEffort = %v, want %s", got, wantEffort)
+	}
+	if got := openai["reasoningSummary"]; got != "detailed" {
+		t.Fatalf("openai.reasoningSummary = %v, want detailed", got)
 	}
 }
 

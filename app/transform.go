@@ -149,7 +149,7 @@ func transformReasoning(body []byte, defaultEffort, path string) []byte {
 		return out
 	}
 
-	if strings.Contains(path, "/messages") && hasAnthropicProviderThinking(req) {
+	if strings.Contains(path, "/messages") && hasMessagesProviderReasoning(req) {
 		changed := stripThinkingSamplingFields(req)
 		if !changed {
 			return body
@@ -168,7 +168,7 @@ func transformReasoning(body []byte, defaultEffort, path string) []byte {
 	if re, ok := req["reasoning_effort"]; ok {
 		if effortStr, ok := re.(string); ok && strings.TrimSpace(effortStr) != "" {
 			if strings.Contains(path, "/messages") {
-				injectAnthropicThinking(req, effortToBudget(effortStr))
+				injectMessagesReasoning(req, effortStr)
 				stripThinkingSamplingFields(req)
 			} else {
 				req["reasoning"] = map[string]any{
@@ -190,7 +190,7 @@ func transformReasoning(body []byte, defaultEffort, path string) []byte {
 		if modelSupportsReasoning(modelStr) {
 			switch {
 			case strings.Contains(path, "/messages"):
-				injectAnthropicThinking(req, effortToBudget(defaultEffort))
+				injectMessagesReasoning(req, defaultEffort)
 				stripThinkingSamplingFields(req)
 			case strings.Contains(path, "chat/completions"):
 				req["reasoning"] = map[string]any{
@@ -256,6 +256,41 @@ func stripThinkingSuffix(model string) string {
 	return model
 }
 
+func injectMessagesReasoning(req map[string]any, effort string) {
+	modelStr, _ := req["model"].(string)
+	if modelNamespace(modelStr) == "openai" {
+		injectOpenAIReasoning(req, effort)
+		return
+	}
+	injectAnthropicThinking(req, effortToBudget(effort))
+}
+
+func modelNamespace(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	if idx := strings.Index(model, "/"); idx > 0 {
+		return strings.ToLower(model[:idx])
+	}
+	return canonicalNamespace(model)
+}
+
+func injectOpenAIReasoning(req map[string]any, effort string) {
+	po, _ := req["providerOptions"].(map[string]any)
+	if po == nil {
+		po = map[string]any{}
+	}
+	openai, _ := po["openai"].(map[string]any)
+	if openai == nil {
+		openai = map[string]any{}
+	}
+	openai["reasoningEffort"] = effort
+	openai["reasoningSummary"] = "detailed"
+	po["openai"] = openai
+	req["providerOptions"] = po
+}
+
 func injectAnthropicThinking(req map[string]any, budgetTokens int) {
 	po, _ := req["providerOptions"].(map[string]any)
 	if po == nil {
@@ -273,11 +308,20 @@ func injectAnthropicThinking(req map[string]any, budgetTokens int) {
 	req["providerOptions"] = po
 }
 
-func hasAnthropicProviderThinking(req map[string]any) bool {
+func hasMessagesProviderReasoning(req map[string]any) bool {
 	po, _ := req["providerOptions"].(map[string]any)
 	anthropic, _ := po["anthropic"].(map[string]any)
-	_, ok := anthropic["thinking"]
-	return ok
+	if _, ok := anthropic["thinking"]; ok {
+		return true
+	}
+	openai, _ := po["openai"].(map[string]any)
+	if _, ok := openai["reasoningEffort"]; ok {
+		return true
+	}
+	if _, ok := openai["reasoningSummary"]; ok {
+		return true
+	}
+	return false
 }
 
 func stripThinkingSamplingFields(req map[string]any) bool {
@@ -313,7 +357,7 @@ func rewriteThinkingSuffix(body []byte, path string) []byte {
 		delete(req, "thinking")
 		switch {
 		case strings.Contains(path, "/messages"):
-			injectAnthropicThinking(req, matched.budget)
+			injectMessagesReasoning(req, matched.effort)
 			stripThinkingSamplingFields(req)
 		case strings.Contains(path, "chat/completions"):
 			req["reasoning"] = map[string]any{

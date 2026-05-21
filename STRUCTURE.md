@@ -82,7 +82,7 @@ Vercel 的渠道路由**不是**靠模型名前缀实现的。`vertex/claude-*` 
 1. `rewriteImageEditsToGenerations` — `/v1/images/edits` → `/v1/images/generations`
 2. `injectImageDefaults` — 图片接口默认 quality=high, size=3840x2160
 3. `rewriteThinkingSuffix` — 模型名 `-{minimal,low,medium,high,xhigh}` / `-thinking-*` 后缀剥离 + 注入 thinking/reasoning
-4. `transformReasoning` — `reasoning_effort` / 默认 reasoning → providerOptions.anthropic.thinking 或 reasoning
+4. `transformReasoning` — `reasoning_effort` / 默认 reasoning → OpenAI reasoning 或 Anthropic thinking
 5. `ensureStreamUsage` — OpenAI 流补 `stream_options.include_usage=true`
 6. `sanitizeForVercel` — 剥掉 0/负值的 top_k/top_p/max_tokens/n
 7. `injectProviderOrder` — 给无 provider 前缀的 model 强加 `bedrock/`、`vertex/` 等
@@ -90,8 +90,9 @@ Vercel 的渠道路由**不是**靠模型名前缀实现的。`vertex/claude-*` 
 **Reasoning / Thinking 注入**
 - `DEFAULT_REASONING_EFFORT` 可选值：`minimal` / `low` / `medium` / `high` / `xhigh`。
 - OpenAI 兼容接口 `/v1/chat/completions` 注入 `reasoning: {enabled:true, effort:"..."}`。
-- Anthropic 接口 `/v1/messages` 注入 `providerOptions.anthropic.thinking: {type:"enabled", budgetTokens:...}`，并删除 `temperature` / `top_p` / `top_k`。
-- `/v1/messages` 预算映射：`minimal=1024`、`low=2048`、`medium=4000`、`high=8000`、`xhigh=16000`。
+- Anthropic 接口 `/v1/messages` 跑 GPT/OpenAI 模型时注入 `providerOptions.openai.reasoningEffort` 和 `reasoningSummary:"detailed"`。
+- Anthropic 接口 `/v1/messages` 跑 Claude/Anthropic 模型时注入 `providerOptions.anthropic.thinking: {type:"enabled", budgetTokens:...}`，并删除 `temperature` / `top_p` / `top_k`。
+- Claude thinking 预算映射：`minimal=1024`、`low=2048`、`medium=4000`、`high=8000`、`xhigh=16000`。
 - 模型名后缀可覆盖默认值，例如 `gpt-5.5-xhigh`、`claude-opus-4.6-high`、`gemini-3-pro-medium`。旧后缀 `-thinking-low/-thinking-mid/-thinking-high/-thinking-max` 保持兼容。
 
 **SSE 防打断**
