@@ -73,6 +73,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#6b7872;box-sh
 .settings-box h3{margin:0 0 12px;font-size:14px}
 .settings-box .form-row:last-child{margin-bottom:0}
 .settings-box textarea{min-height:180px;font-family:Consolas,"Courier New",monospace;font-size:12px}
+.reasoning-hint{margin:-4px 0 12px;padding:9px 11px;border:1px solid var(--border-soft);border-radius:8px;background:#fff;color:var(--muted);font-size:12px;display:grid;gap:4px}
+.reasoning-hint strong{color:var(--text);font-weight:600}
+.reasoning-hint code{font-family:Consolas,"Courier New",monospace;font-size:11px;color:var(--text);background:#f4f6f3;border:1px solid var(--border-soft);border-radius:5px;padding:1px 4px}
 
 /* Table */
 table{width:100%;border-collapse:collapse}
@@ -382,7 +385,12 @@ button:not(.primary):not(.amber):not(.green) .spinner{border-color:rgba(0,0,0,.1
           <h3>默认渠道</h3>
           <div class="form-row"><label>Provider Order</label><input id="cfgProviderOrder" placeholder="bedrock、vertex,anthropic 或 azure,openai"/></div>
           <div class="form-row"><label>默认 Reasoning</label><input id="cfgDefaultReasoning" placeholder="minimal / low / medium / high / xhigh"/></div>
-          <div class="hint">OpenAI 兼容 /chat/completions 会注入 reasoning.effort；Anthropic /messages 会注入 providerOptions.anthropic.thinking。/messages 预算：minimal=1024、low=2048、medium=4000、high=8000、xhigh=16000。模型后缀示例：gpt-5.5-xhigh、claude-opus-4.6-high、gemini-3-pro-medium。</div>
+          <div class="reasoning-hint">
+            <div><strong>OpenAI 兼容接口</strong> <code>/chat/completions</code> 会注入 <code>reasoning.effort</code></div>
+            <div><strong>Anthropic 接口</strong> <code>/messages</code> 会注入 <code>providerOptions.anthropic.thinking</code></div>
+            <div><strong>预算</strong> minimal=1024、low=2048、medium=4000、high=8000、xhigh=16000</div>
+            <div><strong>模型后缀示例</strong> gpt-5.5-xhigh、claude-opus-4.6-high、gemini-3-pro-medium</div>
+          </div>
           <div class="form-row"><label>Gateway Base URL</label><input id="cfgGatewayBase" placeholder="https://ai-gateway.vercel.sh/v1"/></div>
         </div>
         <div class="settings-box">
