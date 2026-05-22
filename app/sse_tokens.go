@@ -45,8 +45,15 @@ func estimateContentTokens(content any) int {
 			if t, ok := m["thinking"].(string); ok {
 				sum += estimateTokens(t)
 			}
-			if tp, ok := m["type"].(string); ok && (tp == "image" || tp == "image_url" || tp == "input_image") {
-				sum += 1500
+			if tp, ok := m["type"].(string); ok {
+				if tp == "image" || tp == "image_url" || tp == "input_image" {
+					sum += 1500
+				}
+				if tp == "file" {
+					if mt, _ := m["mediaType"].(string); strings.HasPrefix(strings.ToLower(mt), "image/") {
+						sum += 1500
+					}
+				}
 			}
 		}
 		return sum

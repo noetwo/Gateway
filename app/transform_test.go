@@ -37,6 +37,17 @@ func TestInjectProviderOrderSkipsUnsupportedOpenAIProviders(t *testing.T) {
 	}
 }
 
+func TestInjectProviderOrderFiltersGoogleProviders(t *testing.T) {
+	body := []byte(`{"model":"gemini-3.1-pro-preview","messages":[]}`)
+
+	req := decodeTransformedBody(t, injectProviderOrder(body, "bedrock,google,vertex,anthropic"))
+
+	if got := req["model"]; got != "google/gemini-3.1-pro-preview" {
+		t.Fatalf("model = %v", got)
+	}
+	assertGatewayOrder(t, req, []string{"google", "vertex"})
+}
+
 func TestTransformReasoningAddsDefaultOpenAIReasoningForMessages(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.5","messages":[],"temperature":0.2,"top_p":1,"top_k":5,"providerOptions":{"gateway":{"order":["azure"]}}}`)
 

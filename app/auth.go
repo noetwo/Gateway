@@ -97,6 +97,12 @@ func checkAuthRequestAnyFailClosed(r *http.Request, tokens []string) bool {
 	if provided == "" {
 		provided = strings.TrimSpace(r.Header.Get("X-Api-Key"))
 	}
+	if provided == "" {
+		provided = strings.TrimSpace(r.Header.Get("X-Goog-Api-Key"))
+	}
+	if provided == "" {
+		provided = strings.TrimSpace(r.URL.Query().Get("key"))
+	}
 	if matches(provided) {
 		return true
 	}

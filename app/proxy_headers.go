@@ -10,7 +10,7 @@ import (
 func copyProxyHeaders(dst, src http.Header) {
 	for k, vals := range src {
 		kl := strings.ToLower(k)
-		if kl == "authorization" || kl == "x-api-key" || kl == "x-auth-token" || kl == "cookie" || kl == "host" || kl == "connection" || kl == "proxy-connection" || kl == "keep-alive" || kl == "transfer-encoding" || kl == "upgrade" {
+		if kl == "authorization" || kl == "x-api-key" || kl == "x-goog-api-key" || kl == "x-auth-token" || kl == "cookie" || kl == "host" || kl == "connection" || kl == "proxy-connection" || kl == "keep-alive" || kl == "transfer-encoding" || kl == "upgrade" {
 			continue
 		}
 		for _, v := range vals {

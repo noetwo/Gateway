@@ -66,6 +66,8 @@ func Run(loginHTML, indexHTML string) {
 	mux.HandleFunc("/anthropic/v1/", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "anthropic"))))
 	mux.HandleFunc("/azure/v1", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "azure"))))
 	mux.HandleFunc("/azure/v1/", withCORS(apiAuth(handleGatewayProxy(rtCfg, state, proxyLogs, "azure"))))
+	mux.HandleFunc("/v1beta", withCORS(apiAuth(handleGeminiProxy(rtCfg, state, proxyLogs))))
+	mux.HandleFunc("/v1beta/", withCORS(apiAuth(handleGeminiProxy(rtCfg, state, proxyLogs))))
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,

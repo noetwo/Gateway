@@ -81,8 +81,17 @@ func injectProviderOrder(body []byte, order string) []byte {
 
 func providersForModelNamespace(providers []string, namespace string) []string {
 	switch namespace {
-	case "anthropic", "google":
+	case "anthropic":
 		return providers
+	case "google":
+		out := make([]string, 0, len(providers))
+		for _, p := range providers {
+			switch strings.ToLower(p) {
+			case "google", "vertex":
+				out = append(out, p)
+			}
+		}
+		return out
 	case "openai":
 		out := make([]string, 0, len(providers))
 		for _, p := range providers {
