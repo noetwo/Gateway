@@ -78,6 +78,28 @@ func TestNextProxyCandidatesUsesHobbyWhenNoTeamAvailable(t *testing.T) {
 	requireIDs(t, got, []string{"02-hobby"})
 }
 
+func TestNextProxyCandidatesTreatsBlankAndCustomTierAsNonHobby(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-blank": {ID: "01-blank", Tier: "", APIKey: "vck_blank_1"},
+		"02-pro":   {ID: "02-pro", Tier: "pro", APIKey: "vck_pro_1"},
+		"03-hobby": {ID: "03-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+	})
+
+	got := candidateIDs(state.nextProxyCandidates("openai/gpt-4.1"))
+	requireIDs(t, got, []string{"01-blank", "02-pro"})
+}
+
+func TestNextProxyCandidatesUsesBlankTierForHobbyBlockedModel(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-blank": {ID: "01-blank", Tier: "", APIKey: "vck_blank_1"},
+		"02-hobby": {ID: "02-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+	})
+	state.HobbyBlocked = []string{"anthropic/claude-opus-*"}
+
+	got := candidateIDs(state.nextProxyCandidates("anthropic/claude-opus-4.5"))
+	requireIDs(t, got, []string{"01-blank"})
+}
+
 func TestNextProxyCandidatesCanPreferHobbyByDefault(t *testing.T) {
 	state := testState(t, map[string]*Key{
 		"01-team":  {ID: "01-team", Tier: "team", APIKey: "vck_team_1"},

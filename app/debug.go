@@ -23,7 +23,29 @@ type debugFileView struct {
 }
 
 func ensureDebugDir() error {
-	return os.MkdirAll(fixedDebugDir(), 0o755)
+	return ensureDebugDirFor(fixedDebugDir())
+}
+
+func ensureDebugDirFor(dir string) error {
+	return os.MkdirAll(normalizeDebugDumpDir(dir), 0o755)
+}
+
+func checkDebugDirWritable(dir string) error {
+	dir = normalizeDebugDumpDir(dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".debug-write-test-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	closeErr := f.Close()
+	removeErr := os.Remove(name)
+	if closeErr != nil {
+		return closeErr
+	}
+	return removeErr
 }
 
 func fixedDebugDir() string {
@@ -42,12 +64,28 @@ func fixedDebugDir() string {
 	return dir
 }
 
-func debugFilePath(name string) (string, error) {
+func normalizeDebugDumpDir(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return fixedDebugDir()
+	}
+	if !filepath.IsAbs(dir) {
+		if abs, err := filepath.Abs(dir); err == nil {
+			return abs
+		}
+	}
+	if clean, err := filepath.Abs(dir); err == nil {
+		return clean
+	}
+	return filepath.Clean(dir)
+}
+
+func debugFilePath(dir, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
 		return "", errors.New("invalid debug file name")
 	}
-	root, err := filepath.Abs(fixedDebugDir())
+	root, err := filepath.Abs(normalizeDebugDumpDir(dir))
 	if err != nil {
 		return "", err
 	}
@@ -110,11 +148,12 @@ func debugFileMatches(path, name, q string) bool {
 	return strings.Contains(strings.ToLower(string(b)), q)
 }
 
-func listDebugFiles(q string) ([]debugFileView, error) {
-	if err := ensureDebugDir(); err != nil {
+func listDebugFiles(dir, q string) ([]debugFileView, error) {
+	dir = normalizeDebugDumpDir(dir)
+	if err := ensureDebugDirFor(dir); err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(fixedDebugDir())
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +163,7 @@ func listDebugFiles(q string) ([]debugFileView, error) {
 			continue
 		}
 		name := entry.Name()
-		path, err := debugFilePath(name)
+		path, err := debugFilePath(dir, name)
 		if err != nil {
 			continue
 		}
@@ -152,33 +191,34 @@ func listDebugFiles(q string) ([]debugFileView, error) {
 	return files, nil
 }
 
-func handleDebugFiles() http.HandlerFunc {
+func handleDebugFiles(rtCfg *RuntimeConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		dir := rtCfg.Get().DebugDumpDir
 		switch r.Method {
 		case http.MethodGet:
-			files, err := listDebugFiles(r.URL.Query().Get("q"))
+			files, err := listDebugFiles(dir, r.URL.Query().Get("q"))
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
-				"dir":   fixedDebugDir(),
+				"dir":   normalizeDebugDumpDir(dir),
 				"files": files,
 				"count": len(files),
 			})
 		case http.MethodDelete:
-			files, err := listDebugFiles("")
+			files, err := listDebugFiles(dir, "")
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
 			deleted := 0
 			for _, file := range files {
-				path, err := debugFilePath(file.Name)
+				path, err := debugFilePath(dir, file.Name)
 				if err != nil {
 					continue
 				}
@@ -195,12 +235,25 @@ func handleDebugFiles() http.HandlerFunc {
 
 func handleDebugSettings(rtCfg *RuntimeConfig) http.HandlerFunc {
 	type debugSettingsReq struct {
-		Enabled bool `json:"enabled"`
+		Enabled bool   `json:"enabled"`
+		Dir     string `json:"dir"`
 	}
 	view := func(cfg Config) map[string]any {
+		dir := normalizeDebugDumpDir(cfg.DebugDumpDir)
+		writable := false
+		var writableErr string
+		if cfg.DebugEnabled {
+			if err := checkDebugDirWritable(dir); err != nil {
+				writableErr = err.Error()
+			} else {
+				writable = true
+			}
+		}
 		return map[string]any{
-			"enabled": cfg.DebugEnabled,
-			"dir":     cfg.DebugDumpDir,
+			"enabled":        cfg.DebugEnabled,
+			"dir":            dir,
+			"writable":       writable,
+			"writable_error": writableErr,
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +272,15 @@ func handleDebugSettings(rtCfg *RuntimeConfig) http.HandlerFunc {
 			}
 			cfg := rtCfg.Get()
 			cfg.DebugEnabled = req.Enabled
-			cfg.DebugDumpDir = fixedDebugDir()
+			if strings.TrimSpace(req.Dir) != "" {
+				cfg.DebugDumpDir = normalizeDebugDumpDir(req.Dir)
+			}
+			if cfg.DebugEnabled {
+				if err := checkDebugDirWritable(cfg.DebugDumpDir); err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "debug dir is not writable: " + err.Error()})
+					return
+				}
+			}
 			saved, err := rtCfg.Update(cfg)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -232,14 +293,15 @@ func handleDebugSettings(rtCfg *RuntimeConfig) http.HandlerFunc {
 	}
 }
 
-func handleDebugFile() http.HandlerFunc {
+func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		dir := rtCfg.Get().DebugDumpDir
 		name := strings.TrimSpace(r.URL.Query().Get("name"))
-		path, err := debugFilePath(name)
+		path, err := debugFilePath(dir, name)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
