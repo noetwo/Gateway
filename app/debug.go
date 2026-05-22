@@ -22,6 +22,16 @@ type debugFileView struct {
 	RequestID string    `json:"request_id"`
 }
 
+type debugFileContent struct {
+	Name      string    `json:"name"`
+	Size      int64     `json:"size"`
+	Modified  time.Time `json:"modified"`
+	Kind      string    `json:"kind"`
+	RequestID string    `json:"request_id"`
+	Content   string    `json:"content"`
+	Truncated bool      `json:"truncated"`
+}
+
 func ensureDebugDir() error {
 	return ensureDebugDirFor(fixedDebugDir())
 }
@@ -191,6 +201,78 @@ func listDebugFiles(dir, q string) ([]debugFileView, error) {
 	return files, nil
 }
 
+func readDebugFileContent(path string) (string, bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+	b, _ := io.ReadAll(io.LimitReader(f, maxDebugViewBytes+1))
+	truncated := len(b) > maxDebugViewBytes
+	if truncated {
+		b = b[:maxDebugViewBytes]
+	}
+	return string(b), truncated, nil
+}
+
+func listDebugFilesByRequestID(dir, requestID string, includeContent bool) ([]debugFileContent, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || strings.ContainsAny(requestID, `/\`) {
+		return nil, errors.New("invalid debug request id")
+	}
+	files, err := listDebugFiles(dir, requestID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]debugFileContent, 0, len(files))
+	for _, file := range files {
+		if file.RequestID != requestID {
+			continue
+		}
+		item := debugFileContent{
+			Name:      file.Name,
+			Size:      file.Size,
+			Modified:  file.Modified,
+			Kind:      file.Kind,
+			RequestID: file.RequestID,
+		}
+		if includeContent {
+			path, err := debugFilePath(dir, file.Name)
+			if err != nil {
+				continue
+			}
+			content, truncated, err := readDebugFileContent(path)
+			if err != nil {
+				continue
+			}
+			item.Content = content
+			item.Truncated = truncated
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return debugKindOrder(out[i].Kind) < debugKindOrder(out[j].Kind)
+	})
+	return out, nil
+}
+
+func debugKindOrder(kind string) int {
+	switch kind {
+	case "request-meta":
+		return 1
+	case "request-body":
+		return 2
+	case "upstream":
+		return 3
+	case "downstream":
+		return 4
+	case "meta":
+		return 5
+	default:
+		return 99
+	}
+}
+
 func handleDebugFiles(rtCfg *RuntimeConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
@@ -230,6 +312,36 @@ func handleDebugFiles(rtCfg *RuntimeConfig) http.HandlerFunc {
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		}
+	}
+}
+
+func handleDebugRequest(rtCfg *RuntimeConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		dir := rtCfg.Get().DebugDumpDir
+		requestID := strings.TrimSpace(r.URL.Query().Get("id"))
+		files, err := listDebugFilesByRequestID(dir, requestID, true)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if len(files) == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "debug request not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"dir":        normalizeDebugDumpDir(dir),
+			"request_id": requestID,
+			"files":      files,
+			"count":      len(files),
+		})
 	}
 }
 
@@ -323,16 +435,10 @@ func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 				http.ServeFile(w, r, path)
 				return
 			}
-			f, err := os.Open(path)
+			content, truncated, err := readDebugFileContent(path)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
-			}
-			defer f.Close()
-			b, _ := io.ReadAll(io.LimitReader(f, maxDebugViewBytes+1))
-			truncated := len(b) > maxDebugViewBytes
-			if truncated {
-				b = b[:maxDebugViewBytes]
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
 				"name":       name,
@@ -340,7 +446,7 @@ func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 				"modified":   info.ModTime().UTC(),
 				"kind":       debugKind(name),
 				"request_id": debugRequestID(name),
-				"content":    string(b),
+				"content":    content,
 				"truncated":  truncated,
 			})
 		case http.MethodDelete:

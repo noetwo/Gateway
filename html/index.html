@@ -947,7 +947,7 @@ function updateStickyButton(s){
 }
 
 // ---------- tabs ----------
-function switchTab(name){
+function activateTab(name){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=>{
     const should=p.id==='panel-'+name;
@@ -959,6 +959,9 @@ function switchTab(name){
       p.classList.remove('active');
     }
   });
+}
+function switchTab(name){
+  activateTab(name);
   if(name==='logs')loadLogs();
   if(name==='debug')loadDebug();
   if(name==='config')loadConfig();
@@ -1181,7 +1184,7 @@ function renderLogs(){
       const provider=[l.interface,l.provider].filter(Boolean).join(' · ');
       const tokenTotal=l.total_tokens||((l.input_tokens||0)+(l.output_tokens||0));
       const tokenCell=tokenTotal?`${tokenTotal}<div class="muted">in ${l.input_tokens||0} / out ${l.output_tokens||0}${l.usage_source?' · '+esc(l.usage_source):''}</div>`:'-';
-      const debugBtn=l.dump_id?`<button class="icon-btn" onclick="filterDebugBy(${jsArg(l.dump_id)})">Debug</button>`:'';
+      const debugBtn=l.dump_id?`<button class="icon-btn" onclick="openDebugRequest(${jsArg(l.dump_id)})">Debug</button>`:'';
       return `<tr>
         <td style="white-space:nowrap">${dt(l.time)}</td>
         <td style="font-family:Consolas,monospace;max-width:220px;word-break:break-word">${endpoint}<div class="muted">${esc(provider||'-')}${l.stream?' · stream':''}</div></td>
@@ -1267,6 +1270,43 @@ function renderDebug(){
     </div></td>
   </tr>`).join('');
 }
+function debugBundleText(files){
+  return (files||[]).map(f=>{
+    const title=`===== ${f.kind||'file'} · ${f.name||''} =====`;
+    const suffix=f.truncated?'\n\n[内容超过 2MB，已截断]':'';
+    return title+'\n'+(f.content||'')+suffix;
+  }).join('\n\n');
+}
+function setDebugCacheFromRequest(files){
+  _debugCache=(files||[]).map(f=>({
+    name:f.name,
+    size:f.size,
+    modified:f.modified,
+    kind:f.kind,
+    request_id:f.request_id
+  }));
+  const cnt=document.getElementById('tabCountDebug');
+  if(cnt)cnt.textContent=_debugCache.length;
+  renderDebug();
+}
+async function openDebugRequest(requestID){
+  requestID=String(requestID||'').trim();
+  if(!requestID)return;
+  activateTab('debug');
+  const input=document.getElementById('debugFilterText');
+  if(input)input.value=requestID;
+  try{
+    await loadDebugSettings();
+    const r=await api('/api/debug/request?id='+encodeURIComponent(requestID));
+    setDebugCacheFromRequest(r.files||[]);
+    const dir=document.getElementById('debugDir');
+    if(dir)dir.textContent=r.dir||'./debug';
+    infoModal('Debug '+requestID,debugBundleText(r.files||[])||'(无内容)');
+  }catch(e){
+    await loadDebug();
+    toast('打开 Debug 失败：'+e.message,'error',6000);
+  }
+}
 async function viewDebug(name){
   try{
     const r=await api('/api/debug/file?name='+encodeURIComponent(name));
@@ -1295,7 +1335,7 @@ async function clearDebug(){
   }catch(e){toast(e.message,'error')}
 }
 async function filterDebugBy(requestID){
-  switchTab('debug');
+  activateTab('debug');
   const input=document.getElementById('debugFilterText');
   if(input)input.value=requestID||'';
   const files=await loadDebug();

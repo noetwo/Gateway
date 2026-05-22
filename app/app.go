@@ -42,6 +42,7 @@ func Run(loginHTML, indexHTML string) {
 	mux.HandleFunc("/api/retry-settings", withCORS(webAuth(handleRetrySettings(state))))
 	mux.HandleFunc("/api/config", withCORS(webAuth(handleConfig(rtCfg, state))))
 	mux.HandleFunc("/api/debug", withCORS(webAuth(handleDebugFiles(rtCfg))))
+	mux.HandleFunc("/api/debug/request", withCORS(webAuth(handleDebugRequest(rtCfg))))
 	mux.HandleFunc("/api/debug/settings", withCORS(webAuth(handleDebugSettings(rtCfg))))
 	mux.HandleFunc("/api/debug/file", withCORS(webAuth(handleDebugFile(rtCfg))))
 	mux.HandleFunc("/api/export/keys", withCORS(webAuth(handleExportKeys(state))))

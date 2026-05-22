@@ -36,6 +36,16 @@ func TestDebugHandlersUseRuntimeConfigDir(t *testing.T) {
 	if !strings.Contains(viewRec.Body.String(), `{\"ok\":true}`) {
 		t.Fatalf("view response did not include file content: %s", viewRec.Body.String())
 	}
+
+	requestReq := httptest.NewRequest(http.MethodGet, "/api/debug/request?id=20260522_120000_000000000", nil)
+	requestRec := httptest.NewRecorder()
+	handleDebugRequest(rt)(requestRec, requestReq)
+	if requestRec.Code != http.StatusOK {
+		t.Fatalf("request status = %d body=%s", requestRec.Code, requestRec.Body.String())
+	}
+	if !strings.Contains(requestRec.Body.String(), name) || !strings.Contains(requestRec.Body.String(), `{\"ok\":true}`) {
+		t.Fatalf("request response did not include debug bundle: %s", requestRec.Body.String())
+	}
 }
 
 func TestNewDumpSessionDoesNotExposeIDWhenDirCannotBeCreated(t *testing.T) {

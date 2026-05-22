@@ -53,6 +53,9 @@ func loadRuntimeConfig(seed Config) (*RuntimeConfig, error) {
 	if strings.TrimSpace(disk.DebugDumpDir) != "" {
 		cfg.DebugDumpDir = normalizeDebugDumpDir(disk.DebugDumpDir)
 	}
+	if envDebugDir := strings.TrimSpace(os.Getenv("DEBUG_DUMP_DIR")); envDebugDir != "" {
+		cfg.DebugDumpDir = normalizeDebugDumpDir(envDebugDir)
+	}
 	cfg.DebugEnabled = disk.DebugEnabled
 	cfg.PassthroughOnly = disk.PassthroughOnly
 	if disk.MonthlyQuotaPerKey > 0 {
