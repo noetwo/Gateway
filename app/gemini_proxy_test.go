@@ -58,13 +58,8 @@ func TestBuildGatewayLanguageModelRequestTranslatesGoogleSearch(t *testing.T) {
 	if !ok || len(order) != 2 || order[0] != "google" || order[1] != "vertex" {
 		t.Fatalf("gateway order = %#v, want google,vertex", gw["order"])
 	}
-	google, ok := po["google"].(map[string]any)
-	if !ok {
-		t.Fatalf("providerOptions.google missing: %#v", po["google"])
-	}
-	thinking, ok := google["thinkingConfig"].(map[string]any)
-	if !ok || thinking["thinkingLevel"] != "low" {
-		t.Fatalf("thinkingConfig = %#v, want low", google["thinkingConfig"])
+	if _, ok := po["google"]; ok {
+		t.Fatalf("providerOptions.google should not be injected without Google-only options: %#v", po["google"])
 	}
 
 	prompt, ok := req.Body["prompt"].([]any)
@@ -116,6 +111,32 @@ func TestBuildGatewayLanguageModelRequestTranslatesImageParts(t *testing.T) {
 	}
 }
 
+func TestBuildGatewayLanguageModelRequestPassesThinkingConfig(t *testing.T) {
+	body := []byte(`{
+		"contents":[{"role":"user","parts":[{"text":"Think briefly."}]}],
+		"generationConfig":{
+			"thinkingConfig":{"thinkingLevel":"high","thinkingBudget":2048,"includeThoughts":true}
+		}
+	}`)
+
+	req, err := buildGatewayLanguageModelRequest(body, "google/gemini-3.1-pro-preview", "google")
+	if err != nil {
+		t.Fatalf("buildGatewayLanguageModelRequest failed: %v", err)
+	}
+	po := req.Body["providerOptions"].(map[string]any)
+	google := po["google"].(map[string]any)
+	thinking := google["thinkingConfig"].(map[string]any)
+	if thinking["thinkingLevel"] != "high" {
+		t.Fatalf("thinkingLevel = %v, want high", thinking["thinkingLevel"])
+	}
+	if thinking["includeThoughts"] != true {
+		t.Fatalf("includeThoughts = %v, want true", thinking["includeThoughts"])
+	}
+	if _, ok := thinking["thinkingBudget"]; ok {
+		t.Fatalf("thinkingBudget should be omitted for gemini-3 when thinkingLevel is set: %#v", thinking)
+	}
+}
+
 func TestGatewayLanguageModelToGeminiMapsTextSourcesAndUsage(t *testing.T) {
 	body := []byte(`{
 		"content":[
@@ -158,6 +179,37 @@ func TestGatewayLanguageModelToGeminiMapsTextSourcesAndUsage(t *testing.T) {
 	}
 }
 
+func TestGatewayLanguageModelToGeminiMapsReasoningParts(t *testing.T) {
+	body := []byte(`{
+		"content":[
+			{"type":"reasoning","text":"Need current source."},
+			{"type":"text","text":"The release is current."}
+		],
+		"finishReason":{"unified":"stop"},
+		"usage":{"inputTokens":{"total":3},"outputTokens":{"total":4,"text":2,"reasoning":2}}
+	}`)
+
+	resp, _, err := gatewayLanguageModelToGemini(body, 3)
+	if err != nil {
+		t.Fatalf("gatewayLanguageModelToGemini failed: %v", err)
+	}
+	cands := resp["candidates"].([]any)
+	cand := cands[0].(map[string]any)
+	content := cand["content"].(map[string]any)
+	parts := content["parts"].([]any)
+	if len(parts) != 2 {
+		t.Fatalf("parts length = %d, want 2: %#v", len(parts), parts)
+	}
+	thought := parts[0].(map[string]any)
+	if thought["text"] != "Need current source." || thought["thought"] != true {
+		t.Fatalf("thought part = %#v", thought)
+	}
+	answer := parts[1].(map[string]any)
+	if answer["text"] != "The release is current." {
+		t.Fatalf("answer part = %#v", answer)
+	}
+}
+
 func TestParseGeminiFacadePath(t *testing.T) {
 	op, model, ok := parseGeminiFacadePath("/v1beta/models/gemini-3.1-pro-preview:generateContent")
 	if !ok || op != "generateContent" || model != "gemini-3.1-pro-preview" {
@@ -182,6 +234,18 @@ func TestGatewayLanguageModelURL(t *testing.T) {
 	want := "https://ai-gateway.vercel.sh/v4/ai/language-model"
 	if got != want {
 		t.Fatalf("gatewayLanguageModelURL = %q, want %q", got, want)
+	}
+}
+
+func TestCanonicalGeminiGatewayModelAcceptsGooglePrefixedModels(t *testing.T) {
+	if got := canonicalGeminiGatewayModel("google/gemini-2.5-flash"); got != "google/gemini-2.5-flash" {
+		t.Fatalf("canonicalGeminiGatewayModel prefixed = %q", got)
+	}
+	if got := canonicalGeminiGatewayModel("models/google/gemini-2.5-flash"); got != "google/gemini-2.5-flash" {
+		t.Fatalf("canonicalGeminiGatewayModel models/google = %q", got)
+	}
+	if got := canonicalGeminiGatewayModel("gemini-2.5-flash"); got != "google/gemini-2.5-flash" {
+		t.Fatalf("canonicalGeminiGatewayModel bare = %q", got)
 	}
 }
 
@@ -216,6 +280,8 @@ func TestProcessGatewayGeminiSSEStreamsTextAndFinalMetadata(t *testing.T) {
 		``,
 		`data: {"type":"text-start","id":"0"}`,
 		``,
+		`data: {"type":"reasoning-delta","id":"r0","delta":"checking source"}`,
+		``,
 		`data: {"type":"text-delta","id":"0","delta":"hello "}`,
 		``,
 		`data: {"type":"text-delta","id":"0","delta":"world"}`,
@@ -243,26 +309,30 @@ func TestProcessGatewayGeminiSSEStreamsTextAndFinalMetadata(t *testing.T) {
 	}
 
 	events := parseGeminiSSEPayloads(t, rec.Body.String())
-	if len(events) != 3 {
-		t.Fatalf("event count = %d, want 3: %s", len(events), rec.Body.String())
+	if len(events) != 4 {
+		t.Fatalf("event count = %d, want 4: %s", len(events), rec.Body.String())
 	}
-	firstText := firstCandidateText(t, events[0])
+	reasoning := firstCandidatePart(t, events[0])
+	if reasoning["text"] != "checking source" || reasoning["thought"] != true {
+		t.Fatalf("reasoning delta = %#v", reasoning)
+	}
+	firstText := firstCandidateText(t, events[1])
 	if firstText != "hello " {
-		t.Fatalf("first delta = %q, want hello ", firstText)
+		t.Fatalf("first text delta = %q, want hello ", firstText)
 	}
-	secondText := firstCandidateText(t, events[1])
+	secondText := firstCandidateText(t, events[2])
 	if secondText != "world" {
 		t.Fatalf("second delta = %q, want world", secondText)
 	}
-	finalCand := events[2]["candidates"].([]any)[0].(map[string]any)
+	finalCand := events[3]["candidates"].([]any)[0].(map[string]any)
 	if finalCand["finishReason"] != "STOP" {
 		t.Fatalf("finishReason = %v, want STOP", finalCand["finishReason"])
 	}
 	if _, ok := finalCand["groundingMetadata"]; !ok {
 		t.Fatalf("groundingMetadata missing: %#v", finalCand)
 	}
-	if _, ok := events[2]["usageMetadata"]; !ok {
-		t.Fatalf("usageMetadata missing: %#v", events[2])
+	if _, ok := events[3]["usageMetadata"]; !ok {
+		t.Fatalf("usageMetadata missing: %#v", events[3])
 	}
 }
 
@@ -288,11 +358,17 @@ func parseGeminiSSEPayloads(t *testing.T, body string) []map[string]any {
 
 func firstCandidateText(t *testing.T, payload map[string]any) string {
 	t.Helper()
+	part := firstCandidatePart(t, payload)
+	text, _ := part["text"].(string)
+	return text
+}
+
+func firstCandidatePart(t *testing.T, payload map[string]any) map[string]any {
+	t.Helper()
 	candidates := payload["candidates"].([]any)
 	candidate := candidates[0].(map[string]any)
 	content := candidate["content"].(map[string]any)
 	parts := content["parts"].([]any)
 	part := parts[0].(map[string]any)
-	text, _ := part["text"].(string)
-	return text
+	return part
 }

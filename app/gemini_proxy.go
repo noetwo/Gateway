@@ -327,12 +327,13 @@ func nativeGeminiModelName(model string) string {
 }
 
 func canonicalGeminiGatewayModel(model string) string {
+	raw := strings.TrimSpace(strings.TrimPrefix(model, "models/"))
+	if strings.HasPrefix(raw, "google/") {
+		return raw
+	}
 	name := nativeGeminiModelName(model)
 	if name == "" {
 		name = defaultGeminiFacadeModel
-	}
-	if strings.Contains(name, "/") {
-		return name
 	}
 	return "google/" + name
 }
@@ -349,7 +350,7 @@ func geminiFacadeModel(model string) map[string]any {
 		"description":                "Vercel AI Gateway Gemini-compatible facade",
 		"inputTokenLimit":            1048576,
 		"outputTokenLimit":           65536,
-		"supportedGenerationMethods": []string{"generateContent", "countTokens"},
+		"supportedGenerationMethods": []string{"generateContent", "streamGenerateContent", "countTokens"},
 	}
 }
 
@@ -528,22 +529,68 @@ func buildGeminiProviderOptions(model, providerOrder string, generationConfig ma
 		google["safetySettings"] = safetySettings
 	}
 	if generationConfig != nil {
-		if tc, ok := generationConfig["thinkingConfig"]; ok {
+		if tc := thinkingConfigFromGenerationConfig(model, generationConfig); len(tc) > 0 {
 			google["thinkingConfig"] = tc
 		}
 		if modalities, ok := generationConfig["responseModalities"]; ok {
 			google["responseModalities"] = modalities
 		}
 	}
-	if strings.Contains(strings.ToLower(model), "gemini-3") {
-		if _, has := google["thinkingConfig"]; !has {
-			google["thinkingConfig"] = map[string]any{"thinkingLevel": "low"}
-		}
-	}
 	if len(google) > 0 {
 		po["google"] = google
 	}
 	return po
+}
+
+func thinkingConfigFromGenerationConfig(model string, generationConfig map[string]any) map[string]any {
+	var raw any
+	if v, ok := generationConfig["thinkingConfig"]; ok {
+		raw = v
+	} else if v, ok := generationConfig["thinking_config"]; ok {
+		raw = v
+	}
+
+	out := map[string]any{}
+	if m, ok := raw.(map[string]any); ok {
+		copyThinkingConfigKey(out, m, "thinkingLevel", "thinking_level", "thinkingLevel")
+		copyThinkingConfigKey(out, m, "thinkingBudget", "thinking_budget", "thinkingBudget")
+		copyThinkingConfigKey(out, m, "includeThoughts", "include_thoughts", "includeThoughts")
+		for k, v := range m {
+			if !knownThinkingConfigKey(k) {
+				out[k] = v
+			}
+		}
+	}
+	copyThinkingConfigKey(out, generationConfig, "thinkingLevel", "thinking_level", "thinkingLevel")
+	copyThinkingConfigKey(out, generationConfig, "thinkingBudget", "thinking_budget", "thinkingBudget")
+	copyThinkingConfigKey(out, generationConfig, "includeThoughts", "include_thoughts", "includeThoughts")
+
+	if strings.Contains(strings.ToLower(model), "gemini-3") {
+		if _, hasLevel := out["thinkingLevel"]; hasLevel {
+			delete(out, "thinkingBudget")
+			delete(out, "thinking_budget")
+		}
+	}
+	return out
+}
+
+func knownThinkingConfigKey(key string) bool {
+	switch key {
+	case "thinkingLevel", "thinking_level", "thinkingBudget", "thinking_budget", "includeThoughts", "include_thoughts":
+		return true
+	default:
+		return false
+	}
+}
+
+func copyThinkingConfigKey(dst, src map[string]any, camelKey, snakeKey, dstKey string) {
+	if v, ok := src[camelKey]; ok {
+		dst[dstKey] = v
+		return
+	}
+	if v, ok := src[snakeKey]; ok {
+		dst[dstKey] = v
+	}
 }
 
 func splitProviderOrder(order string) []string {
@@ -575,26 +622,32 @@ func gatewayLanguageModelToGemini(body []byte, inputEst int) (map[string]any, To
 		return nil, estimatedUsage(inputEst, 0), fmt.Errorf("invalid Vercel language-model response: %w", err)
 	}
 
-	texts := []string{}
+	parts := []any{}
 	sources := []map[string]any{}
 	for _, item := range res.Content {
 		t, _ := item["type"].(string)
 		switch t {
 		case "text":
 			if text, ok := item["text"].(string); ok && text != "" {
-				texts = append(texts, text)
+				parts = append(parts, map[string]any{"text": text})
+			}
+		case "reasoning":
+			if text, ok := item["text"].(string); ok && text != "" {
+				parts = append(parts, map[string]any{"text": text, "thought": true})
 			}
 		case "source":
 			sources = append(sources, item)
 		}
 	}
-	text := strings.Join(texts, "")
+	if len(parts) == 0 {
+		parts = append(parts, map[string]any{"text": ""})
+	}
 	usage := gatewayUsageToTokenUsage(res, inputEst)
 
 	candidate := map[string]any{
 		"content": map[string]any{
 			"role":  "model",
-			"parts": []any{map[string]any{"text": text}},
+			"parts": parts,
 		},
 		"finishReason": geminiFinishReason(res.FinishReason),
 	}

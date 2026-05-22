@@ -43,6 +43,19 @@ func processGatewayGeminiSSE(w http.ResponseWriter, src io.Reader, ctx context.C
 					},
 				}},
 			})
+		case "reasoning-delta":
+			delta, _ := event["delta"].(string)
+			if delta == "" {
+				return nil
+			}
+			return writer.Write(map[string]any{
+				"candidates": []any{map[string]any{
+					"content": map[string]any{
+						"role":  "model",
+						"parts": []any{map[string]any{"text": delta, "thought": true}},
+					},
+				}},
+			})
 		case "source":
 			sources = append(sources, event)
 		case "finish":
