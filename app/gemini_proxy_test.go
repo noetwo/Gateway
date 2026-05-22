@@ -247,6 +247,40 @@ func TestCanonicalGeminiGatewayModelAcceptsGooglePrefixedModels(t *testing.T) {
 	if got := canonicalGeminiGatewayModel("gemini-2.5-flash"); got != "google/gemini-2.5-flash" {
 		t.Fatalf("canonicalGeminiGatewayModel bare = %q", got)
 	}
+	if got := canonicalGeminiGatewayModel("openai/gpt-5.5"); got != "" {
+		t.Fatalf("canonicalGeminiGatewayModel openai = %q, want empty", got)
+	}
+	if got := canonicalGeminiGatewayModel("google/text-embedding-004"); got != "" {
+		t.Fatalf("canonicalGeminiGatewayModel non-gemini google = %q, want empty", got)
+	}
+}
+
+func TestGatewayModelsToGeminiFacadeModelsFiltersGoogleGemini(t *testing.T) {
+	body := []byte(`{
+		"data":[
+			{"id":"openai/gpt-5.5"},
+			{"id":"google/gemini-2.5-flash"},
+			{"id":"gemini-2.0-flash"},
+			{"id":"google/text-embedding-004"},
+			{"id":"google/gemini-2.5-flash"}
+		]
+	}`)
+
+	models, err := gatewayModelsToGeminiFacadeModels(body)
+	if err != nil {
+		t.Fatalf("gatewayModelsToGeminiFacadeModels failed: %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("models length = %d, want 2: %#v", len(models), models)
+	}
+	first := models[0].(map[string]any)
+	second := models[1].(map[string]any)
+	if first["name"] != "models/google/gemini-2.0-flash" {
+		t.Fatalf("first model name = %v", first["name"])
+	}
+	if second["name"] != "models/google/gemini-2.5-flash" {
+		t.Fatalf("second model name = %v", second["name"])
+	}
 }
 
 func TestGeminiSSEEventWrapsFullResponse(t *testing.T) {

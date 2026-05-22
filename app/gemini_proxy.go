@@ -2,12 +2,14 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -88,14 +90,24 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 				writeGeminiError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"models": []any{geminiFacadeModel(defaultGeminiFacadeModel)}})
+			models, err := fetchGatewayGeminiModels(r.Context(), client, cfg, state)
+			if err != nil {
+				writeGeminiError(w, http.StatusServiceUnavailable, "UNAVAILABLE", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"models": models})
 			return
 		case "getModel":
 			if r.Method != http.MethodGet {
 				writeGeminiError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
 				return
 			}
-			writeJSON(w, http.StatusOK, geminiFacadeModel(nativeGeminiModelName(modelName)))
+			gatewayModel := canonicalGeminiGatewayModel(modelName)
+			if gatewayModel == "" {
+				writeGeminiError(w, http.StatusNotFound, "NOT_FOUND", "Gemini facade only supports google/gemini models")
+				return
+			}
+			writeJSON(w, http.StatusOK, geminiFacadeModel(gatewayModel))
 			return
 		case "countTokens":
 			if r.Method != http.MethodPost {
@@ -130,6 +142,10 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 		}
 
 		gatewayModel := canonicalGeminiGatewayModel(modelName)
+		if gatewayModel == "" {
+			writeGeminiError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Gemini facade only supports google/gemini models")
+			return
+		}
 		converted, err := buildGatewayLanguageModelRequest(body, gatewayModel, cfg.ProviderOrder)
 		if err != nil {
 			writeGeminiError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
@@ -328,18 +344,23 @@ func nativeGeminiModelName(model string) string {
 
 func canonicalGeminiGatewayModel(model string) string {
 	raw := strings.TrimSpace(strings.TrimPrefix(model, "models/"))
+	if raw == "" {
+		raw = defaultGeminiFacadeModel
+	}
 	if strings.HasPrefix(raw, "google/") {
+		if !strings.HasPrefix(strings.TrimPrefix(raw, "google/"), "gemini") {
+			return ""
+		}
 		return raw
 	}
-	name := nativeGeminiModelName(model)
-	if name == "" {
-		name = defaultGeminiFacadeModel
+	if strings.Contains(raw, "/") || !strings.HasPrefix(raw, "gemini") {
+		return ""
 	}
-	return "google/" + name
+	return "google/" + raw
 }
 
 func geminiFacadeModel(model string) map[string]any {
-	name := nativeGeminiModelName(model)
+	name := strings.TrimSpace(strings.TrimPrefix(model, "models/"))
 	if name == "" {
 		name = defaultGeminiFacadeModel
 	}
@@ -352,6 +373,79 @@ func geminiFacadeModel(model string) map[string]any {
 		"outputTokenLimit":           65536,
 		"supportedGenerationMethods": []string{"generateContent", "streamGenerateContent", "countTokens"},
 	}
+}
+
+func fetchGatewayGeminiModels(ctx context.Context, client *http.Client, cfg Config, state *AppState) ([]any, error) {
+	cands := state.nextProxyCandidates("google/" + defaultGeminiFacadeModel)
+	if len(cands) == 0 {
+		return nil, errors.New("no active key available")
+	}
+
+	targetURL := strings.TrimRight(cfg.GatewayBaseURL, "/") + "/models"
+	var lastErr error
+	for _, c := range cands {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Accept-Encoding", "identity")
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			lastErr = fmt.Errorf("upstream status=%d body=%s", resp.StatusCode, truncate(strings.TrimSpace(string(body)), 300))
+			continue
+		}
+		models, err := gatewayModelsToGeminiFacadeModels(body)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(models) == 0 {
+			lastErr = errors.New("no google/gemini models returned by upstream")
+			continue
+		}
+		return models, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("all keys failed")
+	}
+	return nil, lastErr
+}
+
+func gatewayModelsToGeminiFacadeModels(body []byte) ([]any, error) {
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+
+	seen := map[string]bool{}
+	names := []string{}
+	for _, model := range parsed.Data {
+		canonical := canonicalGeminiGatewayModel(model.ID)
+		if canonical == "" || seen[canonical] {
+			continue
+		}
+		seen[canonical] = true
+		names = append(names, canonical)
+	}
+	sort.Strings(names)
+
+	out := make([]any, 0, len(names))
+	for _, name := range names {
+		out = append(out, geminiFacadeModel(name))
+	}
+	return out, nil
 }
 
 func gatewayLanguageModelURL(base string) string {
