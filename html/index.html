@@ -502,6 +502,7 @@ const fmt=n=>Number(n||0).toFixed(2);
 const dt=s=>{if(!s)return '-';if(typeof s==='string'&&s.startsWith('0001-01-01'))return '-';return new Date(s).toLocaleString();};
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function jsArg(s){return JSON.stringify(String(s||''));}
+function jsAttrArg(s){return esc(jsArg(s));}
 function truncate(s,n){return (s=String(s||'')).length>n?s.slice(0,n)+'...':s;}
 
 // ---------- toast ----------
@@ -1286,7 +1287,7 @@ function renderLogs(){
       const provider=[l.interface,l.provider].filter(Boolean).join(' · ');
       const tokenTotal=l.total_tokens||((l.input_tokens||0)+(l.output_tokens||0));
       const tokenCell=tokenTotal?`${tokenTotal}<div class="muted">in ${l.input_tokens||0} / out ${l.output_tokens||0}${l.usage_source?' · '+esc(l.usage_source):''}</div>`:'-';
-      const debugBtn=l.dump_id?`<button class="icon-btn" onclick="openDebugRequest(${jsArg(l.dump_id)})">Debug</button>`:'';
+      const debugBtn=l.dump_id?`<button class="icon-btn" onclick="openDebugRequest(${jsAttrArg(l.dump_id)})">Debug</button>`:'';
       return `<tr>
         <td style="white-space:nowrap">${dt(l.time)}</td>
         <td style="font-family:Consolas,monospace;max-width:220px;word-break:break-word">${endpoint}<div class="muted">${esc(provider||'-')}${l.stream?' · stream':''}</div></td>
@@ -1372,9 +1373,9 @@ function renderDebug(){
     <td>${humanBytes(f.size)}</td>
     <td class="muted">${dt(f.modified)}</td>
     <td class="right"><div class="actions">
-      <button class="icon-btn" onclick="viewDebug(${jsArg(f.name)})">查看</button>
-      <button class="icon-btn" onclick="downloadDebug(${jsArg(f.name)})">下载</button>
-      <button class="icon-btn red" onclick="deleteDebug(${jsArg(f.name)})">删除</button>
+      <button class="icon-btn" onclick="viewDebug(${jsAttrArg(f.name)})">查看</button>
+      <button class="icon-btn" onclick="downloadDebug(${jsAttrArg(f.name)})">下载</button>
+      <button class="icon-btn red" onclick="deleteDebug(${jsAttrArg(f.name)})">删除</button>
     </div></td>
   </tr>`).join('');
 }
