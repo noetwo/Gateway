@@ -75,3 +75,27 @@ func TestProcessResponsesSSEPreservesCompletedReasoningItems(t *testing.T) {
 		t.Fatalf("usage = %#v, want actual 10/4/14", usage)
 	}
 }
+
+func TestProcessResponsesSSERestoresCompletedOutputFromDoneItems(t *testing.T) {
+	src := strings.NewReader(strings.Join([]string{
+		`data: {"type":"response.output_item.done","output_index":1,"item":{"id":"msg_1","type":"message","status":"completed","content":[{"type":"output_text","text":"visible"}],"role":"assistant"}}`,
+		``,
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"checked"}]}}`,
+		``,
+		`data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[]}}`,
+		``,
+	}, "\n"))
+	rec := httptest.NewRecorder()
+
+	if err := processResponsesSSE(rec, src, context.Background(), 0, nil); err != nil {
+		t.Fatalf("processResponsesSSE failed: %v", err)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"output":[{"id":"rs_1"`) {
+		t.Fatalf("completed output was not restored in output_index order: %s", body)
+	}
+	if !strings.Contains(body, `"id":"msg_1"`) || !strings.Contains(body, `"text":"visible"`) {
+		t.Fatalf("message output item missing from completed response: %s", body)
+	}
+}

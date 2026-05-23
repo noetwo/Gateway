@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -381,6 +382,7 @@ func processResponsesSSE(w http.ResponseWriter, src io.Reader, ctx context.Conte
 		usageStats = &TokenUsage{}
 	}
 	defer func() { usageStats.finish(inputEst, outputAccum) }()
+	state := &responsesSSEState{}
 
 	emit := func(event, data string) error {
 		var b strings.Builder
@@ -434,6 +436,7 @@ func processResponsesSSE(w http.ResponseWriter, src io.Reader, ctx context.Conte
 		}
 
 		noteResponsesUsage(obj, usageStats)
+		state.repairEvent(obj)
 
 		out, err := json.Marshal(obj)
 		if err != nil {
@@ -524,4 +527,82 @@ func noteOpenAIStyleUsage(usageStats *TokenUsage, usage map[string]any) {
 		intField(usage, "completion_tokens", "output_tokens"),
 		intField(usage, "total_tokens"),
 	)
+}
+
+type responsesSSEState struct {
+	outputItems          map[int]any
+	outputOrder          []int
+	unindexedOutputItems []any
+}
+
+func (s *responsesSSEState) repairEvent(obj map[string]any) {
+	if s == nil || obj == nil {
+		return
+	}
+	switch canonicalResponsesEventName("", obj) {
+	case "response.output_item.done":
+		s.recordOutputItem(obj)
+	case "response.completed":
+		s.repairCompletedOutput(obj)
+	}
+}
+
+func (s *responsesSSEState) recordOutputItem(obj map[string]any) {
+	item, ok := obj["item"].(map[string]any)
+	if !ok || item == nil {
+		return
+	}
+	if strings.TrimSpace(anyString(item["type"])) == "" {
+		return
+	}
+
+	if _, hasIndex := obj["output_index"]; hasIndex {
+		index := int(getFloat(obj, "output_index"))
+		if s.outputItems == nil {
+			s.outputItems = make(map[int]any)
+		}
+		if _, exists := s.outputItems[index]; !exists {
+			s.outputOrder = append(s.outputOrder, index)
+		}
+		s.outputItems[index] = item
+		return
+	}
+
+	s.unindexedOutputItems = append(s.unindexedOutputItems, item)
+}
+
+func (s *responsesSSEState) repairCompletedOutput(obj map[string]any) {
+	if len(s.outputOrder) == 0 && len(s.unindexedOutputItems) == 0 {
+		return
+	}
+	resp, ok := obj["response"].(map[string]any)
+	if !ok || resp == nil {
+		return
+	}
+	if output, exists := resp["output"]; exists {
+		if arr, ok := output.([]any); !ok || len(arr) > 0 {
+			return
+		}
+	}
+
+	outputs := make([]any, 0, len(s.outputOrder)+len(s.unindexedOutputItems))
+	indexes := append([]int(nil), s.outputOrder...)
+	sort.Ints(indexes)
+	for _, index := range indexes {
+		if item, ok := s.outputItems[index]; ok {
+			outputs = append(outputs, item)
+		}
+	}
+	outputs = append(outputs, s.unindexedOutputItems...)
+	if len(outputs) == 0 {
+		return
+	}
+	resp["output"] = outputs
+}
+
+func anyString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
