@@ -36,6 +36,69 @@ func publicView(k *Key) PublicKeyView {
 	}
 }
 
+func keyImportTime(id string, k *Key) time.Time {
+	if k == nil {
+		return time.Time{}
+	}
+	if !k.CreatedAt.IsZero() {
+		return k.CreatedAt
+	}
+	if ns, err := strconv.ParseInt(id, 36, 64); err == nil && ns > 0 {
+		t := time.Unix(0, ns).UTC()
+		if t.After(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)) && t.Before(time.Now().UTC().Add(24*time.Hour)) {
+			return t
+		}
+	}
+	if !k.UpdatedAt.IsZero() {
+		return k.UpdatedAt
+	}
+	return time.Time{}
+}
+
+func importTimeLess(a time.Time, aID string, b time.Time, bID string) bool {
+	switch {
+	case a.IsZero() && b.IsZero():
+		return aID < bID
+	case a.IsZero():
+		return false
+	case b.IsZero():
+		return true
+	case !a.Equal(b):
+		return a.Before(b)
+	default:
+		return aID < bID
+	}
+}
+
+func keyAvailableForSticky(k *Key) bool {
+	return k != nil && !k.Scrapped && !k.Paused && strings.TrimSpace(k.APIKey) != ""
+}
+
+func (s *AppState) stickyKeyAvailableLocked(id string) bool {
+	k, ok := s.Keys[id]
+	return ok && keyAvailableForSticky(k)
+}
+
+func (s *AppState) firstAvailableStickyKeyIDLocked() string {
+	bestID := ""
+	var bestTime time.Time
+	for id, k := range s.Keys {
+		if !keyAvailableForSticky(k) {
+			continue
+		}
+		keyID := k.ID
+		if keyID == "" {
+			keyID = id
+		}
+		t := keyImportTime(keyID, k)
+		if bestID == "" || importTimeLess(t, keyID, bestTime, bestID) {
+			bestID = keyID
+			bestTime = t
+		}
+	}
+	return bestID
+}
+
 func roll30DayWindow(k *Key) {
 	ref := k.LastProxyAt
 	if ref.IsZero() {

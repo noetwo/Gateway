@@ -205,3 +205,32 @@ func TestNextProxyCandidatesStickyHobbyDoesNotOverrideTeam(t *testing.T) {
 	got := candidateIDs(state.nextProxyCandidates("openai/gpt-4.1"))
 	requireIDs(t, got, []string{"02-team"})
 }
+
+func TestNextProxyCandidatesStickyAutoSelectsOldestImportedKey(t *testing.T) {
+	base := time.Date(2026, 6, 22, 22, 18, 41, 0, time.UTC)
+	state := testState(t, map[string]*Key{
+		"01-newer": {ID: "01-newer", Tier: "team", APIKey: "vck_team_new", CreatedAt: base.Add(time.Hour)},
+		"02-older": {ID: "02-older", Tier: "team", APIKey: "vck_team_old", CreatedAt: base},
+		"03-hobby": {ID: "03-hobby", Tier: "hobby", APIKey: "vck_hobby_old", CreatedAt: base.Add(-time.Hour)},
+	})
+	state.StickyMode = true
+
+	got := candidateIDs(state.nextProxyCandidates("openai/gpt-4.1"))
+	requireIDs(t, got, []string{"02-older", "01-newer"})
+	if state.StickyKeyID != "02-older" {
+		t.Fatalf("StickyKeyID = %q, want 02-older", state.StickyKeyID)
+	}
+}
+
+func TestFirstAvailableStickyKeyIDLockedUsesOldestImportTime(t *testing.T) {
+	base := time.Date(2026, 6, 22, 22, 18, 41, 0, time.UTC)
+	state := testState(t, map[string]*Key{
+		"01-newer":  {ID: "01-newer", Tier: "team", APIKey: "vck_team_new", CreatedAt: base.Add(time.Hour)},
+		"02-older":  {ID: "02-older", Tier: "team", APIKey: "vck_team_old", CreatedAt: base},
+		"03-paused": {ID: "03-paused", Tier: "team", APIKey: "vck_paused", Paused: true, CreatedAt: base.Add(-time.Hour)},
+	})
+
+	if got := state.firstAvailableStickyKeyIDLocked(); got != "02-older" {
+		t.Fatalf("firstAvailableStickyKeyIDLocked = %q, want 02-older", got)
+	}
+}

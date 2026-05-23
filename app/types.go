@@ -130,9 +130,10 @@ type Config struct {
 }
 
 type proxyCandidate struct {
-	ID     string
-	APIKey string
-	Tier   string
+	ID        string
+	APIKey    string
+	Tier      string
+	CreatedAt time.Time
 }
 
 type ProxyLog struct {

@@ -44,7 +44,13 @@ func loadState(path string, cooldown float64) (*AppState, error) {
 	state.normalizeHobbyBlockedModels()
 	state.normalizeTierRoutingSettings()
 
-	for _, k := range state.Keys {
+	for id, k := range state.Keys {
+		if k.CreatedAt.IsZero() {
+			k.CreatedAt = keyImportTime(id, k)
+		}
+		if k.UpdatedAt.IsZero() && !k.CreatedAt.IsZero() {
+			k.UpdatedAt = k.CreatedAt
+		}
 		roll30DayWindow(k)
 	}
 	if err := state.save(); err != nil {

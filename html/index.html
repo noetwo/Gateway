@@ -938,7 +938,7 @@ function keyCellHtml(k){
 function nameCell(k,isLocked){
   const lock=isLocked?'<span class="lock-ico">🔒</span>':'';
   const name=k.name?esc(k.name):'<span class="muted">-</span>';
-  return `${lock}${name}`;
+  return `${lock}${name}<div class="muted">${dt(k.created_at)}</div>`;
 }
 
 function tierCell(k){

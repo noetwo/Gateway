@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strings"
 )
 
 func handleStickyToggle(state *AppState) http.HandlerFunc {
@@ -21,13 +20,8 @@ func handleStickyToggle(state *AppState) http.HandlerFunc {
 		defer state.mu.Unlock()
 		state.StickyMode = !state.StickyMode
 		if state.StickyMode {
-			if state.StickyKeyID == "" {
-				for _, k := range state.Keys {
-					if !k.Scrapped && !k.Paused && strings.TrimSpace(k.APIKey) != "" {
-						state.StickyKeyID = k.ID
-						break
-					}
-				}
+			if state.StickyKeyID == "" || !state.stickyKeyAvailableLocked(state.StickyKeyID) {
+				state.StickyKeyID = state.firstAvailableStickyKeyIDLocked()
 			}
 		} else {
 			state.StickyKeyID = ""

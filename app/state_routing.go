@@ -110,6 +110,12 @@ func rotateProxyCandidates(list []proxyCandidate, turn uint64) []proxyCandidate 
 	return result
 }
 
+func sortProxyCandidatesByImportTime(list []proxyCandidate) {
+	sort.Slice(list, func(i, j int) bool {
+		return importTimeLess(list[i].CreatedAt, list[i].ID, list[j].CreatedAt, list[j].ID)
+	})
+}
+
 func modelBlockedForHobby(model string, patterns []string) bool {
 	name := normalizeModelName(model)
 	if name == "" {
@@ -150,12 +156,16 @@ func (s *AppState) nextProxyCandidates(model string) []proxyCandidate {
 	preferredTier := preferredTierForModel(model, s.PreferredTier, s.TeamPriority, s.HobbyPriority, hobbyBlocked)
 	team := make([]proxyCandidate, 0, len(s.Keys))
 	hobby := make([]proxyCandidate, 0, len(s.Keys))
-	for _, k := range s.Keys {
+	for id, k := range s.Keys {
 		roll30DayWindow(k)
 		if k.Scrapped || k.Paused || strings.TrimSpace(k.APIKey) == "" {
 			continue
 		}
-		c := proxyCandidate{ID: k.ID, APIKey: k.APIKey, Tier: k.Tier}
+		keyID := k.ID
+		if keyID == "" {
+			keyID = id
+		}
+		c := proxyCandidate{ID: keyID, APIKey: k.APIKey, Tier: k.Tier, CreatedAt: keyImportTime(id, k)}
 		switch {
 		case isHobbyTier(k.Tier):
 			hobby = append(hobby, c)
@@ -168,8 +178,8 @@ func (s *AppState) nextProxyCandidates(model string) []proxyCandidate {
 		return list
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 	if s.StickyMode {
+		sortProxyCandidatesByImportTime(list)
 		stickyIdx := -1
 		if s.StickyKeyID != "" {
 			for i, c := range list {
