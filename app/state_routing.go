@@ -57,11 +57,7 @@ func (s *AppState) tierRoutingSettings() (string, []string, []string) {
 }
 
 func normalizeModelName(model string) string {
-	name := strings.ToLower(strings.TrimSpace(model))
-	if name == "" {
-		return ""
-	}
-	return stripThinkingSuffix(name)
+	return strings.ToLower(strings.TrimSpace(model))
 }
 
 func isHobbyTier(tier string) bool {

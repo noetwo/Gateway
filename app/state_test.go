@@ -134,6 +134,33 @@ func TestNextProxyCandidatesHobbyPriorityRuleOverridesTeamDefault(t *testing.T) 
 	requireIDs(t, got, []string{"02-hobby"})
 }
 
+func TestNormalizeModelPatternsKeepsThinkingSuffix(t *testing.T) {
+	got := normalizeModelPatterns([]string{"openai/gpt-5.5-xhigh"}, false)
+	requireIDs(t, got, []string{"openai/gpt-5.5-xhigh"})
+}
+
+func TestNextProxyCandidatesHobbyPriorityCanTargetThinkingSuffix(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-team":  {ID: "01-team", Tier: "team", APIKey: "vck_team_1"},
+		"02-hobby": {ID: "02-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+	})
+	state.HobbyPriority = []string{"openai/gpt-5.5-xhigh"}
+
+	got := candidateIDs(state.nextProxyCandidates("openai/gpt-5.5-xhigh"))
+	requireIDs(t, got, []string{"02-hobby"})
+}
+
+func TestNextProxyCandidatesBasePriorityStillMatchesThinkingSuffix(t *testing.T) {
+	state := testState(t, map[string]*Key{
+		"01-team":  {ID: "01-team", Tier: "team", APIKey: "vck_team_1"},
+		"02-hobby": {ID: "02-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
+	})
+	state.HobbyPriority = []string{"openai/gpt-5.5"}
+
+	got := candidateIDs(state.nextProxyCandidates("openai/gpt-5.5-xhigh"))
+	requireIDs(t, got, []string{"02-hobby"})
+}
+
 func TestNextProxyCandidatesStillBlocksHobbyForBlockedModels(t *testing.T) {
 	state := testState(t, map[string]*Key{
 		"01-hobby": {ID: "01-hobby", Tier: "hobby", APIKey: "vck_hobby_1"},
