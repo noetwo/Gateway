@@ -81,9 +81,11 @@ func newDumpSession(dir string, r *http.Request, body []byte, inputEst int) *dum
 		log.Printf("dump: create downstream file failed: %v", err)
 	}
 	if !wroteFile {
+		log.Printf("dump: disabled id=%s dir=%s path=%s no debug files were writable", id, dir, r.URL.Path)
 		return &dumpSession{enabled: false}
 	}
 	d.enabled = true
+	log.Printf("dump: enabled id=%s dir=%s path=%s body_bytes=%d input_est=%d", d.id, d.dir, d.reqPath, len(body), inputEst)
 	return d
 }
 
@@ -175,4 +177,9 @@ func (d *dumpSession) finalize(statusCode int, clientCancelled bool, copyErr err
 	if mb, err := json.MarshalIndent(meta, "", "  "); err == nil {
 		_ = os.WriteFile(filepath.Join(d.dir, d.id+"_meta.json"), mb, 0o644)
 	}
+	errText := ""
+	if copyErr != nil {
+		errText = copyErr.Error()
+	}
+	log.Printf("dump: finalized id=%s dir=%s path=%s status=%d upstream_bytes=%d downstream_bytes=%d client_cancelled=%v err=%q", d.id, d.dir, d.reqPath, statusCode, d.upBytes, d.downBytes, clientCancelled, errText)
 }

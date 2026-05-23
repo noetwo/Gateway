@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -314,9 +315,11 @@ func handleDebugFiles(rtCfg *RuntimeConfig) http.HandlerFunc {
 		case http.MethodGet:
 			files, err := listDebugFiles(dir, r.URL.Query().Get("q"))
 			if err != nil {
+				log.Printf("[debug] list failed dir=%s q=%q err=%v", normalizeDebugDumpDir(dir), r.URL.Query().Get("q"), err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
+			log.Printf("[debug] list dir=%s q=%q count=%d", normalizeDebugDumpDir(dir), r.URL.Query().Get("q"), len(files))
 			writeJSON(w, http.StatusOK, map[string]any{
 				"dir":   normalizeDebugDumpDir(dir),
 				"files": files,
@@ -325,6 +328,7 @@ func handleDebugFiles(rtCfg *RuntimeConfig) http.HandlerFunc {
 		case http.MethodDelete:
 			files, err := listDebugFiles(dir, "")
 			if err != nil {
+				log.Printf("[debug] clear failed dir=%s err=%v", normalizeDebugDumpDir(dir), err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
@@ -338,6 +342,7 @@ func handleDebugFiles(rtCfg *RuntimeConfig) http.HandlerFunc {
 					deleted++
 				}
 			}
+			log.Printf("[debug] clear dir=%s deleted=%d", normalizeDebugDumpDir(dir), deleted)
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -359,10 +364,12 @@ func handleDebugRequest(rtCfg *RuntimeConfig) http.HandlerFunc {
 		requestID := strings.TrimSpace(r.URL.Query().Get("id"))
 		files, err := listDebugFilesByRequestID(dir, requestID, true)
 		if err != nil {
+			log.Printf("[debug] request failed dir=%s id=%q err=%v", normalizeDebugDumpDir(dir), requestID, err)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		if len(files) == 0 {
+			log.Printf("[debug] request not found dir=%s id=%q", normalizeDebugDumpDir(dir), requestID)
 			writeJSON(w, http.StatusNotFound, map[string]any{
 				"error":      "debug request not found",
 				"dir":        normalizeDebugDumpDir(dir),
@@ -370,6 +377,7 @@ func handleDebugRequest(rtCfg *RuntimeConfig) http.HandlerFunc {
 			})
 			return
 		}
+		log.Printf("[debug] request dir=%s id=%q count=%d", normalizeDebugDumpDir(dir), requestID, len(files))
 		writeJSON(w, http.StatusOK, map[string]any{
 			"dir":        normalizeDebugDumpDir(dir),
 			"request_id": requestID,
@@ -409,10 +417,14 @@ func handleDebugSettings(rtCfg *RuntimeConfig) http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			writeJSON(w, http.StatusOK, view(rtCfg.Get()))
+			cfg := rtCfg.Get()
+			resp := view(cfg)
+			log.Printf("[debug] settings get enabled=%v dir=%s writable=%v err=%q", cfg.DebugEnabled, resp["dir"], resp["writable"], resp["writable_error"])
+			writeJSON(w, http.StatusOK, resp)
 		case http.MethodPost:
 			var req debugSettingsReq
 			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+				log.Printf("[debug] settings invalid json err=%v", err)
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 				return
 			}
@@ -423,16 +435,20 @@ func handleDebugSettings(rtCfg *RuntimeConfig) http.HandlerFunc {
 			}
 			if cfg.DebugEnabled {
 				if err := checkDebugDirWritable(cfg.DebugDumpDir); err != nil {
+					log.Printf("[debug] settings rejected enabled=%v dir=%s err=%v", cfg.DebugEnabled, normalizeDebugDumpDir(cfg.DebugDumpDir), err)
 					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "debug dir is not writable: " + err.Error()})
 					return
 				}
 			}
 			saved, err := rtCfg.Update(cfg)
 			if err != nil {
+				log.Printf("[debug] settings save failed enabled=%v dir=%s err=%v", cfg.DebugEnabled, normalizeDebugDumpDir(cfg.DebugDumpDir), err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusOK, view(saved))
+			resp := view(saved)
+			log.Printf("[debug] settings saved enabled=%v dir=%s writable=%v err=%q", saved.DebugEnabled, resp["dir"], resp["writable"], resp["writable_error"])
+			writeJSON(w, http.StatusOK, resp)
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		}
@@ -449,6 +465,7 @@ func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 		name := strings.TrimSpace(r.URL.Query().Get("name"))
 		path, err := debugFilePath(dir, name)
 		if err != nil {
+			log.Printf("[debug] file invalid dir=%s name=%q err=%v", normalizeDebugDumpDir(dir), name, err)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
@@ -460,6 +477,7 @@ func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 				if errors.Is(err, os.ErrNotExist) {
 					status = http.StatusNotFound
 				}
+				log.Printf("[debug] file stat failed dir=%s name=%q status=%d err=%v", normalizeDebugDumpDir(dir), name, status, err)
 				writeJSON(w, status, map[string]string{"error": err.Error()})
 				return
 			}
@@ -470,18 +488,22 @@ func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 				w.Header().Set("X-Content-Type-Options", "nosniff")
 				f, err := os.Open(path)
 				if err != nil {
+					log.Printf("[debug] file download open failed dir=%s name=%q err=%v", normalizeDebugDumpDir(dir), name, err)
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
 				defer f.Close()
+				log.Printf("[debug] file download dir=%s name=%q size=%d", normalizeDebugDumpDir(dir), name, info.Size())
 				http.ServeContent(w, r, filename, info.ModTime(), f)
 				return
 			}
 			content, truncated, err := readDebugFileContent(path)
 			if err != nil {
+				log.Printf("[debug] file read failed dir=%s name=%q err=%v", normalizeDebugDumpDir(dir), name, err)
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
 			}
+			log.Printf("[debug] file view dir=%s name=%q size=%d truncated=%v", normalizeDebugDumpDir(dir), name, info.Size(), truncated)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"name":       name,
 				"size":       info.Size(),
@@ -497,9 +519,11 @@ func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 				if errors.Is(err, os.ErrNotExist) {
 					status = http.StatusNotFound
 				}
+				log.Printf("[debug] file delete failed dir=%s name=%q status=%d err=%v", normalizeDebugDumpDir(dir), name, status, err)
 				writeJSON(w, status, map[string]string{"error": err.Error()})
 				return
 			}
+			log.Printf("[debug] file deleted dir=%s name=%q", normalizeDebugDumpDir(dir), name)
 			writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 		default:
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
