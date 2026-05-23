@@ -534,11 +534,90 @@ function infoModal(title,body){
   openOverlay('modalInfo');
 }
 
+// ---------- client diagnostics ----------
+function clientLogTrim(v,max){
+  const s=String(v||'');
+  return s.length>max?s.slice(0,max)+'...':s;
+}
+function clientLog(level,action,payload={}){
+  try{
+    const data=Object.assign({
+      level,
+      scope:'debug-ui',
+      action,
+      href:location.pathname+location.search
+    },payload||{});
+    if(data.message)data.message=clientLogTrim(data.message,800);
+    if(data.body)data.body=clientLogTrim(data.body,1000);
+    if(data.stack)data.stack=clientLogTrim(data.stack,2000);
+    if(data.path)data.path=clientLogTrim(data.path,500);
+    const body=JSON.stringify(data);
+    fetch('/api/client-log',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      keepalive:true,
+      body
+    }).catch(()=>{});
+  }catch{}
+}
+function clientErrorPayload(e,extra={}){
+  const err=e instanceof Error?e:null;
+  return {
+    message:err?err.message:String(e||''),
+    stack:err&&err.stack?err.stack:'',
+    status:e&&e.status?Number(e.status):0,
+    path:e&&e.path?String(e.path):'',
+    method:e&&e.method?String(e.method):'',
+    body:e&&e.body?String(e.body):'',
+    extra
+  };
+}
+function debugClientInfo(action,extra={}){
+  clientLog('info',action,{extra});
+}
+function debugClientError(action,e,extra={}){
+  clientLog('error',action,clientErrorPayload(e,extra));
+}
+window.addEventListener('error',ev=>{
+  clientLog('error','window-error',{
+    message:ev.message||'',
+    stack:ev.error&&ev.error.stack?ev.error.stack:'',
+    extra:{source:ev.filename||'',line:ev.lineno||0,col:ev.colno||0}
+  });
+});
+window.addEventListener('unhandledrejection',ev=>{
+  debugClientError('unhandled-rejection',ev.reason||'');
+});
+
 // ---------- downloads ----------
 async function downloadBlob(path,filename){
-  const r=await fetch(path,{credentials:'same-origin'});
-  if(r.status===401){location.reload();return false;}
-  if(!r.ok)throw new Error(await r.text());
+  const method='GET';
+  let r;
+  try{
+    r=await fetch(path,{credentials:'same-origin'});
+  }catch(e){
+    e.path=path;
+    e.method=method;
+    throw e;
+  }
+  if(r.status===401){
+    location.reload();
+    const err=new Error('session expired');
+    err.status=r.status;
+    err.path=path;
+    err.method=method;
+    throw err;
+  }
+  if(!r.ok){
+    const body=await r.text();
+    const err=new Error(body||('http '+r.status));
+    err.status=r.status;
+    err.path=path;
+    err.method=method;
+    err.body=body;
+    throw err;
+  }
   const blob=await r.blob();
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -546,7 +625,7 @@ async function downloadBlob(path,filename){
   document.body.appendChild(a);
   a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
-  return true;
+  return {ok:true,size:blob.size,type:blob.type||'',filename};
 }
 async function exportKeys(){
   try{
@@ -556,12 +635,35 @@ async function exportKeys(){
 
 // ---------- API ----------
 async function api(path,opts={}){
+  const method=(opts.method||'GET').toUpperCase();
   const headers=Object.assign({'Content-Type':'application/json'},opts.headers||{});
-  const r=await fetch(path,Object.assign({},opts,{headers,credentials:'same-origin'}));
+  let r;
+  try{
+    r=await fetch(path,Object.assign({},opts,{headers,credentials:'same-origin'}));
+  }catch(e){
+    e.path=path;
+    e.method=method;
+    throw e;
+  }
   const t=await r.text();
   let j={};try{j=t?JSON.parse(t):{}}catch{}
-  if(r.status===401){location.reload();throw new Error('会话已过期');}
-  if(!r.ok)throw new Error(j.error||t||('http '+r.status));
+  if(r.status===401){
+    location.reload();
+    const err=new Error(j.error||'session expired');
+    err.status=r.status;
+    err.path=path;
+    err.method=method;
+    err.body=t;
+    throw err;
+  }
+  if(!r.ok){
+    const err=new Error(j.error||t||('http '+r.status));
+    err.status=r.status;
+    err.path=path;
+    err.method=method;
+    err.body=t;
+    throw err;
+  }
   return j;
 }
 async function logout(){try{await fetch('/api/logout',{method:'POST'});}catch{}localStorage.removeItem('auth_token');location.reload();}
@@ -1226,22 +1328,27 @@ async function loadDebugSettings(){
     const dir=document.getElementById('debugDir');
     if(dir)dir.textContent=r.dir||'debug';
     if(r.writable_error)toast('Debug 目录不可写：'+r.writable_error,'error',5000);
-  }catch(e){toast(e.message,'error')}
+  }catch(e){debugClientError('load-debug-settings-failed',e);toast(e.message,'error')}
 }
 async function saveDebugSettings(){
+  let enabled=false,dir='';
   try{
-    const enabled=!!document.getElementById('debugEnabled')?.checked;
-    const dir=(document.getElementById('debugDirInput')?.value||'').trim();
+    enabled=!!document.getElementById('debugEnabled')?.checked;
+    dir=(document.getElementById('debugDirInput')?.value||'').trim();
+    debugClientInfo('save-debug-settings-start',{enabled,dir});
     const r=await api('/api/debug/settings',{method:'POST',body:JSON.stringify({enabled,dir})});
     _debugEnabled=!!r.enabled;
     await loadDebugSettings();
+    debugClientInfo('save-debug-settings-ok',{enabled:_debugEnabled,dir:r.dir||dir,writable:!!r.writable});
     toast(_debugEnabled?'Debug Dump 已启用':'Debug Dump 已关闭',_debugEnabled?'success':'warn');
-  }catch(e){toast(e.message,'error');await loadDebugSettings();}
+  }catch(e){debugClientError('save-debug-settings-failed',e,{enabled,dir});toast(e.message,'error');await loadDebugSettings();}
 }
 async function loadDebug(){
+  let q='';
   try{
     await loadDebugSettings();
-    const q=(document.getElementById('debugFilterText')?.value||'').trim();
+    q=(document.getElementById('debugFilterText')?.value||'').trim();
+    debugClientInfo('load-debug-start',{q});
     const r=await api('/api/debug'+(q?'?q='+encodeURIComponent(q):''));
     _debugCache=r.files||[];
     const cnt=document.getElementById('tabCountDebug');
@@ -1249,8 +1356,9 @@ async function loadDebug(){
     const dir=document.getElementById('debugDir');
     if(dir)dir.textContent=r.dir||'./debug';
     renderDebug();
+    debugClientInfo('load-debug-ok',{q,count:_debugCache.length,dir:r.dir||'./debug'});
     return _debugCache;
-  }catch(e){toast(e.message,'error')}
+  }catch(e){debugClientError('load-debug-failed',e,{q});toast(e.message,'error')}
   return [];
 }
 function renderDebug(){
@@ -1292,6 +1400,7 @@ function setDebugCacheFromRequest(files){
 async function openDebugRequest(requestID){
   requestID=String(requestID||'').trim();
   if(!requestID)return;
+  debugClientInfo('open-debug-request-start',{request_id:requestID});
   activateTab('debug');
   const input=document.getElementById('debugFilterText');
   if(input)input.value=requestID;
@@ -1302,44 +1411,60 @@ async function openDebugRequest(requestID){
     const dir=document.getElementById('debugDir');
     if(dir)dir.textContent=r.dir||'./debug';
     infoModal('Debug '+requestID,debugBundleText(r.files||[])||'(无内容)');
+    debugClientInfo('open-debug-request-ok',{request_id:requestID,count:(r.files||[]).length,dir:r.dir||'./debug'});
   }catch(e){
+    debugClientError('open-debug-request-failed',e,{request_id:requestID});
     await loadDebug();
     toast('打开 Debug 失败：'+e.message,'error',6000);
   }
 }
 async function viewDebug(name){
   try{
+    debugClientInfo('view-debug-start',{name});
     const r=await api('/api/debug/file?name='+encodeURIComponent(name));
     infoModal(name,(r.content||'')+(r.truncated?'\n\n[内容超过 2MB，已截断]':''));
-  }catch(e){toast(e.message,'error')}
+    debugClientInfo('view-debug-ok',{name,size:r.size||0,truncated:!!r.truncated});
+  }catch(e){debugClientError('view-debug-failed',e,{name});toast(e.message,'error')}
 }
 async function downloadDebug(name){
   try{
-    if(await downloadBlob('/api/debug/file?download=1&name='+encodeURIComponent(name),name))toast('Debug 文件已开始下载','success');
-  }catch(e){toast(e.message,'error')}
+    debugClientInfo('download-debug-start',{name});
+    const result=await downloadBlob('/api/debug/file?download=1&name='+encodeURIComponent(name),name);
+    if(result){
+      debugClientInfo('download-debug-ok',{name,size:result.size||0,type:result.type||''});
+      toast('Debug 文件已开始下载','success');
+    }
+  }catch(e){debugClientError('download-debug-failed',e,{name});toast(e.message,'error')}
 }
 async function deleteDebug(name){
   if(!await confirmModal('确定删除这个 Debug 文件？','删除 Debug','red'))return;
   try{
+    debugClientInfo('delete-debug-start',{name});
     await api('/api/debug/file?name='+encodeURIComponent(name),{method:'DELETE'});
     await loadDebug();
+    debugClientInfo('delete-debug-ok',{name});
     toast('Debug 文件已删除','success');
-  }catch(e){toast(e.message,'error')}
+  }catch(e){debugClientError('delete-debug-failed',e,{name});toast(e.message,'error')}
 }
 async function clearDebug(){
   if(!await confirmModal('确定清空 ./debug 目录？','清空 Debug','red'))return;
   try{
+    debugClientInfo('clear-debug-start');
     const r=await api('/api/debug',{method:'DELETE'});
     await loadDebug();
+    debugClientInfo('clear-debug-ok',{deleted:r.deleted||0});
     toast(`已删除 ${r.deleted||0} 个 Debug 文件`,'success');
-  }catch(e){toast(e.message,'error')}
+  }catch(e){debugClientError('clear-debug-failed',e);toast(e.message,'error')}
 }
 async function filterDebugBy(requestID){
   activateTab('debug');
   const input=document.getElementById('debugFilterText');
   if(input)input.value=requestID||'';
   const files=await loadDebug();
-  if(requestID&&!files.length)toast('没有找到这个请求的 Debug 文件，可能目录不可写、文件已被清理，或请求打到了另一台容器实例','warn',5000);
+  if(requestID&&!files.length){
+    debugClientInfo('filter-debug-empty',{request_id:requestID});
+    toast('没有找到这个请求的 Debug 文件，可能目录不可写、文件已被清理，或请求打到了另一台容器实例','warn',5000);
+  }
 }
 
 // init
