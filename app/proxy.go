@@ -76,6 +76,7 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 		inputEst := estimateInputTokensFromBody(body)
 		isAnthropicPath := strings.Contains(logicalPath, "/messages")
 		isOpenAIPath := strings.Contains(logicalPath, "chat/completions")
+		isResponsesPath := strings.Contains(logicalPath, "/responses")
 
 		dumpDir := ""
 		if cfg.DebugEnabled {
@@ -196,6 +197,8 @@ func handleGatewayProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyL
 				copyErr = processAnthropicSSE(captureWriter, respBody, r.Context(), inputEst, &usage)
 			case respIsSSE && isOpenAIPath:
 				copyErr = processOpenAISSE(captureWriter, respBody, r.Context(), inputEst, &usage)
+			case respIsSSE && isResponsesPath:
+				copyErr = processResponsesSSE(captureWriter, respBody, r.Context(), inputEst, &usage)
 			default:
 				copyErr = streamCopy(captureWriter, respBody)
 				usage = extractUsageFromResponse(captureWriter.Bytes(), inputEst)

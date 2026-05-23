@@ -367,3 +367,161 @@ func processOpenAISSE(w http.ResponseWriter, src io.Reader, ctx context.Context,
 	}
 	return nil
 }
+
+func processResponsesSSE(w http.ResponseWriter, src io.Reader, ctx context.Context, inputEst int, usageStats *TokenUsage) error {
+	flusher, _ := w.(http.Flusher)
+	reader := bufio.NewReaderSize(src, 64*1024)
+
+	var (
+		curEvent    string
+		curData     strings.Builder
+		outputAccum int
+	)
+	if usageStats == nil {
+		usageStats = &TokenUsage{}
+	}
+	defer func() { usageStats.finish(inputEst, outputAccum) }()
+
+	emit := func(event, data string) error {
+		var b strings.Builder
+		if event != "" {
+			b.WriteString("event: ")
+			b.WriteString(event)
+			b.WriteByte('\n')
+		}
+		b.WriteString("data: ")
+		b.WriteString(data)
+		b.WriteString("\n\n")
+		if _, err := w.Write([]byte(b.String())); err != nil {
+			return err
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return nil
+	}
+
+	emitLine := func(line string) error {
+		if _, err := w.Write([]byte(line)); err != nil {
+			return err
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return nil
+	}
+
+	handleEvent := func(event, data string) error {
+		if data == "" {
+			return nil
+		}
+		if data == "[DONE]" {
+			return emit(event, data)
+		}
+
+		var obj map[string]any
+		dec := json.NewDecoder(strings.NewReader(data))
+		dec.UseNumber()
+		if err := dec.Decode(&obj); err != nil {
+			return emit(event, data)
+		}
+
+		eventType := canonicalResponsesEventName(event, obj)
+		if eventType == "response.output_text.delta" {
+			if delta, ok := obj["delta"].(string); ok {
+				outputAccum += estimateTokens(delta)
+			}
+		}
+
+		noteResponsesUsage(obj, usageStats)
+
+		out, err := json.Marshal(obj)
+		if err != nil {
+			return emit(event, data)
+		}
+		return emit(eventType, string(out))
+	}
+
+	flushEvent := func() error {
+		if curData.Len() == 0 && curEvent == "" {
+			return nil
+		}
+		ev := curEvent
+		d := curData.String()
+		curEvent = ""
+		curData.Reset()
+		return handleEvent(ev, d)
+	}
+
+	clientGone := false
+	for {
+		select {
+		case <-ctx.Done():
+			clientGone = true
+		default:
+		}
+		if clientGone {
+			break
+		}
+
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			trimmed := strings.TrimRight(line, "\r\n")
+			switch {
+			case trimmed == "":
+				if e := flushEvent(); e != nil {
+					return e
+				}
+			case strings.HasPrefix(trimmed, "event:"):
+				curEvent = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
+			case strings.HasPrefix(trimmed, "data:"):
+				if curData.Len() > 0 {
+					curData.WriteByte('\n')
+				}
+				curData.WriteString(strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
+			case strings.HasPrefix(trimmed, ":"):
+				if e := emitLine(line); e != nil {
+					return e
+				}
+			}
+		}
+		if err != nil {
+			_ = flushEvent()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func canonicalResponsesEventName(event string, obj map[string]any) string {
+	if t, ok := obj["type"].(string); ok && strings.TrimSpace(t) != "" {
+		return strings.TrimSpace(t)
+	}
+	return strings.TrimSpace(event)
+}
+
+func noteResponsesUsage(obj map[string]any, usageStats *TokenUsage) {
+	if usageStats == nil {
+		return
+	}
+	if usage, ok := obj["usage"].(map[string]any); ok && usage != nil {
+		noteOpenAIStyleUsage(usageStats, usage)
+	}
+	if resp, ok := obj["response"].(map[string]any); ok && resp != nil {
+		if usage, ok := resp["usage"].(map[string]any); ok && usage != nil {
+			noteOpenAIStyleUsage(usageStats, usage)
+		}
+	}
+}
+
+func noteOpenAIStyleUsage(usageStats *TokenUsage, usage map[string]any) {
+	usageStats.noteActual(
+		intField(usage, "prompt_tokens", "input_tokens"),
+		intField(usage, "completion_tokens", "output_tokens"),
+		intField(usage, "total_tokens"),
+	)
+}
