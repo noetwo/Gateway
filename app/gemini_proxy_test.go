@@ -370,6 +370,82 @@ func TestProcessGatewayGeminiSSEStreamsTextAndFinalMetadata(t *testing.T) {
 	}
 }
 
+func TestHandleGeminiProxyWritesDebugDumpAndLogID(t *testing.T) {
+	var sawGatewayRequest bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v4/ai/language-model" {
+			t.Fatalf("upstream path = %q, want /v4/ai/language-model", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer vck_test" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		if _, ok := body["prompt"]; !ok {
+			t.Fatalf("upstream body missing prompt: %#v", body)
+		}
+		sawGatewayRequest = true
+		writeJSON(w, http.StatusOK, map[string]any{
+			"content": []any{map[string]any{"type": "text", "text": "hello"}},
+			"finishReason": map[string]any{
+				"unified": "stop",
+			},
+			"usage": map[string]any{
+				"inputTokens":  map[string]any{"total": 3},
+				"outputTokens": map[string]any{"total": 2, "text": 2},
+			},
+		})
+	}))
+	defer upstream.Close()
+
+	dumpDir := t.TempDir()
+	rt := &RuntimeConfig{current: Config{
+		GatewayBaseURL: upstream.URL + "/v1",
+		DebugEnabled:   true,
+		DebugDumpDir:   dumpDir,
+		ProviderOrder:  "google",
+	}}
+	state := testState(t, map[string]*Key{
+		"01": {ID: "01", Name: "one", APIKey: "vck_test", Tier: "team"},
+	})
+	logs := newProxyLogRing(10)
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent", strings.NewReader(`{
+		"contents":[{"role":"user","parts":[{"text":"hi"}]}]
+	}`))
+	rec := httptest.NewRecorder()
+
+	handleGeminiProxy(rt, state, logs)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !sawGatewayRequest {
+		t.Fatal("upstream did not receive request")
+	}
+
+	recent := logs.Recent(1)
+	if len(recent) != 1 {
+		t.Fatalf("log count = %d, want 1", len(recent))
+	}
+	if recent[0].DumpID == "" {
+		t.Fatalf("DumpID is empty in log: %#v", recent[0])
+	}
+	files, err := listDebugFilesByRequestID(dumpDir, recent[0].DumpID, true)
+	if err != nil {
+		t.Fatalf("list debug files: %v", err)
+	}
+	kinds := map[string]bool{}
+	for _, file := range files {
+		kinds[file.Kind] = true
+	}
+	for _, kind := range []string{"request-meta", "request-body", "upstream", "downstream", "meta"} {
+		if !kinds[kind] {
+			t.Fatalf("debug files missing kind %q: %#v", kind, files)
+		}
+	}
+}
+
 func parseGeminiSSEPayloads(t *testing.T, body string) []map[string]any {
 	t.Helper()
 	out := []map[string]any{}

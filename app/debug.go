@@ -141,6 +141,26 @@ func debugRequestID(name string) string {
 	return strings.TrimSuffix(name, filepath.Ext(name))
 }
 
+func normalizeDebugRequestID(requestID string) (string, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || strings.ContainsAny(requestID, `/\`) {
+		return "", errors.New("invalid debug request id")
+	}
+	for _, suffix := range []string{
+		"_request_meta.json",
+		"_request_body.json",
+		"_upstream.txt",
+		"_downstream.txt",
+		"_meta.json",
+	} {
+		if strings.HasSuffix(requestID, suffix) {
+			requestID = strings.TrimSuffix(requestID, suffix)
+			break
+		}
+	}
+	return requestID, nil
+}
+
 func debugFileMatches(path, name, q string) bool {
 	q = strings.ToLower(strings.TrimSpace(q))
 	if q == "" {
@@ -216,19 +236,29 @@ func readDebugFileContent(path string) (string, bool, error) {
 }
 
 func listDebugFilesByRequestID(dir, requestID string, includeContent bool) ([]debugFileContent, error) {
-	requestID = strings.TrimSpace(requestID)
-	if requestID == "" || strings.ContainsAny(requestID, `/\`) {
-		return nil, errors.New("invalid debug request id")
-	}
-	files, err := listDebugFiles(dir, requestID)
+	normalizedID, err := normalizeDebugRequestID(requestID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]debugFileContent, 0, len(files))
+	files, err := listDebugFiles(dir, "")
+	if err != nil {
+		return nil, err
+	}
+	selected := make([]debugFileView, 0, len(files))
+	fallback := make([]debugFileView, 0, len(files))
 	for _, file := range files {
-		if file.RequestID != requestID {
-			continue
+		switch {
+		case file.RequestID == normalizedID:
+			selected = append(selected, file)
+		case strings.HasPrefix(file.RequestID, normalizedID) || strings.HasPrefix(normalizedID, file.RequestID):
+			fallback = append(fallback, file)
 		}
+	}
+	if len(selected) == 0 {
+		selected = fallback
+	}
+	out := make([]debugFileContent, 0, len(files))
+	for _, file := range selected {
 		item := debugFileContent{
 			Name:      file.Name,
 			Size:      file.Size,
@@ -333,7 +363,11 @@ func handleDebugRequest(rtCfg *RuntimeConfig) http.HandlerFunc {
 			return
 		}
 		if len(files) == 0 {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "debug request not found"})
+			writeJSON(w, http.StatusNotFound, map[string]any{
+				"error":      "debug request not found",
+				"dir":        normalizeDebugDumpDir(dir),
+				"request_id": requestID,
+			})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -430,9 +464,17 @@ func handleDebugFile(rtCfg *RuntimeConfig) http.HandlerFunc {
 				return
 			}
 			if r.URL.Query().Get("download") == "1" {
-				filename := strings.ReplaceAll(name, `"`, "_")
+				filename := strings.ReplaceAll(filepath.Base(name), `"`, "_")
 				w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
-				http.ServeFile(w, r, path)
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+				f, err := os.Open(path)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+					return
+				}
+				defer f.Close()
+				http.ServeContent(w, r, filename, info.ModTime(), f)
 				return
 			}
 			content, truncated, err := readDebugFileContent(path)

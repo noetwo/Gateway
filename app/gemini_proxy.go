@@ -157,13 +157,24 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 			return
 		}
 
+		dumpDir := ""
+		if cfg.DebugEnabled {
+			dumpDir = cfg.DebugDumpDir
+		}
+		dump := newDumpSession(dumpDir, r, payload, converted.InputEstimate)
+		defer dump.finalize(0, r.Context().Err() != nil, nil)
+		writeDumpedGeminiError := func(code int, status, message string) {
+			writeGeminiError(dump.wrapDownstream(w), code, status, message)
+			dump.finalize(code, r.Context().Err() != nil, nil)
+		}
+
 		cands := state.nextProxyCandidates(gatewayModel)
 		if len(cands) == 0 {
 			if modelBlockedForHobby(gatewayModel, state.hobbyBlockedSettings()) {
-				writeGeminiError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "no non-hobby active key available for "+gatewayModel)
+				writeDumpedGeminiError(http.StatusServiceUnavailable, "UNAVAILABLE", "no non-hobby active key available for "+gatewayModel)
 				return
 			}
-			writeGeminiError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "no active key available")
+			writeDumpedGeminiError(http.StatusServiceUnavailable, "UNAVAILABLE", "no active key available")
 			return
 		}
 		retryCodes, maxAttempts := state.retrySettings()
@@ -202,6 +213,7 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 				OutputTokens: usage.OutputTokens,
 				TotalTokens:  usage.TotalTokens,
 				UsageSource:  usage.Source,
+				DumpID:       dump.id,
 			})
 		}
 
@@ -209,7 +221,7 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 		for i, c := range cands {
 			outReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(payload))
 			if err != nil {
-				writeGeminiError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+				writeDumpedGeminiError(http.StatusInternalServerError, "INTERNAL", err.Error())
 				return
 			}
 			outReq.Header.Set("Authorization", "Bearer "+c.APIKey)
@@ -243,8 +255,9 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 
 			respIsSSE := strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "event-stream")
 			if wantGeminiStream && resp.StatusCode >= 200 && resp.StatusCode < 300 && respIsSSE {
-				usage, copyErr := processGatewayGeminiSSE(w, resp.Body, r.Context(), converted.InputEstimate)
+				usage, copyErr := processGatewayGeminiSSE(dump.wrapDownstream(w), dump.wrapUpstream(resp.Body), r.Context(), converted.InputEstimate)
 				_ = resp.Body.Close()
+				dump.finalize(resp.StatusCode, r.Context().Err() != nil, copyErr)
 				if copyErr != nil {
 					if r.Context().Err() != nil {
 						state.markProxySuccess(c.ID)
@@ -260,8 +273,14 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 				return
 			}
 
-			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+			respBody, readErr := io.ReadAll(io.LimitReader(dump.wrapUpstream(resp.Body), 16<<20))
 			_ = resp.Body.Close()
+			if readErr != nil {
+				state.markProxyFailure(c.ID, readErr.Error(), 0, cfg)
+				addProxyLog(c, 0, false, i > 0, "upstream read error: "+readErr.Error(), estimatedUsage(converted.InputEstimate, 0))
+				writeDumpedGeminiError(http.StatusBadGateway, "UNAVAILABLE", readErr.Error())
+				return
+			}
 
 			if shouldRetryWithNextKey(resp.StatusCode, retryCodes) {
 				errMsg := fmt.Sprintf("upstream status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(respBody)))
@@ -271,7 +290,7 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 				if i < len(cands)-1 {
 					continue
 				}
-				writeGeminiError(w, http.StatusBadGateway, "UNAVAILABLE", errMsg)
+				writeDumpedGeminiError(http.StatusBadGateway, "UNAVAILABLE", errMsg)
 				return
 			}
 
@@ -279,7 +298,7 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 				errMsg := fmt.Sprintf("upstream status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 				state.markProxyFailure(c.ID, fmt.Sprintf("upstream status=%d", resp.StatusCode), resp.StatusCode, cfg)
 				addProxyLog(c, resp.StatusCode, false, i > 0, truncate(errMsg, 200), estimatedUsage(converted.InputEstimate, 0))
-				writeGeminiError(w, http.StatusBadGateway, "UNAVAILABLE", errMsg)
+				writeDumpedGeminiError(http.StatusBadGateway, "UNAVAILABLE", errMsg)
 				return
 			}
 
@@ -287,24 +306,25 @@ func handleGeminiProxy(rtCfg *RuntimeConfig, state *AppState, proxyLogs *ProxyLo
 			if err != nil {
 				state.markProxyFailure(c.ID, err.Error(), 0, cfg)
 				addProxyLog(c, resp.StatusCode, false, i > 0, "response transform error: "+err.Error(), estimatedUsage(converted.InputEstimate, 0))
-				writeGeminiError(w, http.StatusBadGateway, "INTERNAL", err.Error())
+				writeDumpedGeminiError(http.StatusBadGateway, "INTERNAL", err.Error())
 				return
 			}
 
 			state.markProxySuccess(c.ID)
 			addProxyLog(c, resp.StatusCode, true, i > 0, "", usage)
 			if wantGeminiStream {
-				_ = writeGeminiSSE(w, geminiResp)
+				_ = writeGeminiSSE(dump.wrapDownstream(w), geminiResp)
 			} else {
-				writeJSON(w, http.StatusOK, geminiResp)
+				writeJSON(dump.wrapDownstream(w), http.StatusOK, geminiResp)
 			}
+			dump.finalize(http.StatusOK, r.Context().Err() != nil, nil)
 			return
 		}
 
 		if lastErr == nil {
 			lastErr = errors.New("all keys failed")
 		}
-		writeGeminiError(w, http.StatusBadGateway, "UNAVAILABLE", lastErr.Error())
+		writeDumpedGeminiError(http.StatusBadGateway, "UNAVAILABLE", lastErr.Error())
 	}
 }
 
